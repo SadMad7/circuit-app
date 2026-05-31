@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+/* Reset and base */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* React Flow: make the canvas fill its container */
+.react-flow__renderer {
+  border-radius: 0.75rem;
+}
