@@ -18,8 +18,31 @@
 import type { Edge } from '@xyflow/react';
 import type { AppNode } from '../canvas/nodes/types';
 import type { SolveResult, ComponentState } from '../domain/solve-result';
+import type { OhmsResult } from './ohms';
 import { classifyComponents } from './reachability';
 import { FIXTURES } from './mock-fixtures';
+
+/**
+ * Maps an OhmsResult to per-component states.
+ * Phase 2 wires this into the solve() body after classifyTopology() + solveOhms().
+ * Not called in Phase 1 — the mock path never invokes ohms.ts.
+ *
+ * Mapping contract: any ok:false result (not-reducible, short-circuit, conflicting-sources)
+ * maps every active component to `floating/unsolvable`. The specific reason code is for
+ * debugging only; the UI collapses all error cases to the same unsolvable rendering.
+ */
+export function applyOhmsResult(
+  result: OhmsResult,
+  activeIds: string[],
+): Record<string, ComponentState> {
+  if (result.ok) return result.components;
+  return Object.fromEntries(
+    activeIds.map((id) => [
+      id,
+      { status: 'floating' as const, reason: 'unsolvable' as const },
+    ]),
+  );
+}
 
 export function solve(nodes: AppNode[], edges: Edge[]): SolveResult {
   if (nodes.length === 0) {

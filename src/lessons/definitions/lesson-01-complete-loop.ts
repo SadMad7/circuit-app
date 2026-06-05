@@ -43,6 +43,7 @@ const initialNodes: AppNode[] = [
       kind: 'bulb',
       componentId: LED_ID,
       label: 'LED',
+      resistanceOhm: 18,  // 9V / 18Ω = 500mA — conspicuously high; seeds Lesson 2
     },
   },
 ];

@@ -45,7 +45,7 @@ If a lesson concept would require math beyond series/parallel reduction + Ohm's 
 
 - **One new primitive per lesson.** Each core lesson introduces at most one new interaction. Adding two at once means the lesson should split.
 - **No submit button, ever.** `SolveResult` updates live as the user wires and edits. Goal match triggers auto-advance; failure states drive hint text. The state of the circuit IS the answer.
-- **Three ComponentStates drive failure hints:** `dangling` (terminal not wired), `isolated-from-source` (wired but no path to a battery), `active` (in a complete loop). These are the only signals lessons branch on for feedback.
+- **Three ComponentStates drive failure hints:** `dangling` (terminal not wired), `isolated-from-source` (wired but no path to a battery), `active` (in a complete loop). These are the only signals lessons branch on for feedback. A fourth floating reason, `unsolvable`, exists for circuits the series/parallel solver cannot reduce — it only occurs in sandbox and never in any lesson path.
 - **Validators are factories**, never hand-rolled per lesson — e.g. `expectVoltageAcross('r1', 6)`, `expectComponentLit('led1')`. Lessons compose them; we don't write bespoke check logic per lesson.
 - **Lessons reference component-terminal pairs**, never raw node IDs. Node IDs are an internal implementation detail of the solver.
 - **Colorful and beginner-friendly over hyper-realistic.** UI components should look inviting, not like schematic symbols out of a textbook.
@@ -85,6 +85,8 @@ If a prompt or suggestion would push past these guardrails, push back or simplif
 - Wires live only in React Flow, not in the `Circuit` domain model. The React Flow → `Circuit` converter does union-find over wires to merge connected terminals into shared node IDs.
 - `ComponentState` is a discriminated union. No top-level `isClosed` boolean — derive it from per-component states (any `active` → circuit is closed).
 - Lessons reference `TerminalRef` (component-terminal pairs), never raw node IDs. Node IDs are ephemeral solver implementation details and may regenerate between solves.
+- `Bulb` carries `resistanceOhm: number`. The solver treats it as a plain series resistor of that resistance — no diode curve, no forward-voltage threshold. Lesson 1 sets 18 Ω, giving I = 9 V / 18 Ω = 500 mA (conspicuously high; seeds the need for a current-limiting resistor in Lesson 2).
+- The value-readout panel displays a Resistance row for resistors only — never for bulbs. `Bulb.resistanceOhm` is a solver input, not a user-facing property.
 
 ## Type contracts (pinned)
 
@@ -95,7 +97,7 @@ type TerminalRef = {
 };
 
 type ComponentState =
-  | { status: 'floating'; reason: 'dangling' | 'isolated-from-source' }
+  | { status: 'floating'; reason: 'dangling' | 'isolated-from-source' | 'unsolvable' }
   | { status: 'active'; voltage: number; current: number; power: number };
 
 interface SolveResult {
@@ -198,4 +200,6 @@ Bonus content (switch component, voltmeter component, lessons 6 and 7) slots int
   - **Auto-advance delay:** 1.8 s hardcoded — tune after real playtesting.
   - **LED active color:** amber (`bg-amber-400`) — verify contrast and legibility on varied backgrounds.
   - **LED renderer:** 💡 emoji placeholder — replace with an SVG symbol before ship.
-  - **"No resistor" current:** 500 mA in `batteryPlusBulb` fixture — should read as conspicuously dangerous but not implausible; pick a final value after seeing it in context.
+  - **"No resistor" current:** 500 mA is now physically derived (9 V / 18 Ω bulb), not a magic number. If the 18 Ω default changes, the mock current changes with it automatically.
+  - **Lesson 4 total resistance:** 330 + 470 + 18 Ω (bulb) = 818 Ω, not 800 Ω. Decide whether L4 hint copy shows the true total (818 Ω, I ≈ 11.0 mA) or reframes as "resistor sum = 800 Ω" — whichever is clearer for the learner, but the panel's V and I must be consistent with the actual Rtot so I × R = 9 V holds.
+  - **Unsolvable UI treatment:** the `unsolvable` reason currently falls through to generic floating styling and copy. Build distinct panel copy and component renderer styling alongside sandbox.

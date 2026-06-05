@@ -9,7 +9,7 @@
  * both produce this shape. The UI never needs to change between phases.
  */
 export type ComponentState =
-  | { status: 'floating'; reason: 'dangling' | 'isolated-from-source' }
+  | { status: 'floating'; reason: 'dangling' | 'isolated-from-source' | 'unsolvable' }
   | { status: 'active'; voltage: number; current: number; power: number };
 
 export interface SolveResult {

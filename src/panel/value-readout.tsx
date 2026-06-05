@@ -86,7 +86,7 @@ function ReadoutRow({ node, state }: ReadoutRowProps) {
         <div className="grid grid-cols-2 gap-x-3 gap-y-1">
           <Metric label="Voltage" value={fmtV(state.voltage)} color="text-blue-600" />
           <Metric label="Current" value={fmtA(state.current)} color="text-green-600" />
-          {node.data.resistanceOhm !== undefined && (
+          {node.data.resistanceOhm !== undefined && node.data.kind !== 'bulb' && (
             <Metric label="Resistance" value={fmtR(node.data.resistanceOhm)} color="text-orange-600" />
           )}
           <Metric label="Power" value={fmtP(state.power)} color="text-purple-600" />

@@ -15,7 +15,8 @@
  * 1. Build a resistor network graph from active components:
  *    - Battery → ideal voltage source (known V, unknown I).
  *    - Resistor → known R.
- *    - Bulb → 0 Ω (or negligible resistance; the lesson models V across resistors).
+ *    - Bulb → treated as a plain resistor of R = component.resistanceOhm for series/parallel
+ *      reduction; voltage across it = I × resistanceOhm, power = I² × resistanceOhm.
  *    - Switch (closed) → 0 Ω short. Switch (open) → already excluded by topology.ts.
  *
  * 2. Iteratively reduce the network:
@@ -34,8 +35,9 @@
  * 5. Compute power: P = V * I for each component.
  *
  * ─── Edge cases to handle ─────────────────────────────────────────────────
- * • Single resistor in series with battery:
- *     R_equiv = R. I = V/R. V_resistor = V. V_bulb = 0 (shorted).
+ * • Single resistor + bulb in series with battery:
+ *     R_equiv = R_resistor + R_bulb. I = V / R_equiv.
+ *     V_resistor = I × R_resistor. V_bulb = I × R_bulb.
  *
  * • Two resistors in series (R1, R2):
  *     R_equiv = R1 + R2. I = V / R_equiv. V_R1 = I*R1, V_R2 = I*R2.
@@ -58,8 +60,11 @@
  *     Multiple batteries in parallel with equal voltages: treat as single battery.
  *     Conflicting parallel batteries (different voltages): return error result.
  *
- * • Bulb with negligible resistance: treat as 0 Ω (wire) for reduction purposes.
- *     Its voltage = 0, current = I of its series branch, power = 0.
+ * • not-reducible result and the adapter mapping:
+ *     When `solver/index.ts` receives `{ ok: false, reason: 'not-reducible' }`, it maps
+ *     every component in the active set to `{ status: 'floating', reason: 'unsolvable' }`.
+ *     'unsolvable' is the UI-visible signal; 'not-reducible' is the internal reason code.
+ *     This only occurs in sandbox (all lesson shapes are guaranteed series/parallel reducible).
  *
  * ─── Return shape ─────────────────────────────────────────────────────────
  * Returns the same Record<componentId, ComponentState> shape as topology.ts, but

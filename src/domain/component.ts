@@ -26,11 +26,13 @@ export type Resistor = {
 
 /**
  * `bulb` is the domain name for what the UI calls "LED."
- * Current is governed by surrounding resistors via V=IR — no diode curve.
+ * Carries its own resistanceOhm (18 Ω in Lesson 1); the solver treats it as a
+ * plain series resistor of that resistance. No diode curve, no forward-voltage threshold.
  */
 export type Bulb = {
   kind: 'bulb';
   id: string;
+  resistanceOhm: number;
   terminals: TwoTerminals;
 };
 

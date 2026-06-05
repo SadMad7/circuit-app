@@ -56,7 +56,8 @@ function nodesOfKind(nodes: AppNode[], kind: ComponentKind): AppNode[] {
 // ---------------------------------------------------------------------------
 // Fixture 1 — battery + bulb (no resistor)
 // Conspicuously high current; seeds Lesson 2's "too bright" concept.
-// 9 V / ~18 Ω (LED forward resistance approximation) ≈ 500 mA
+// 9 V / bulb.resistanceOhm (18 Ω default) = 500 mA. Data-driven — mock
+// stays aligned with the real solver automatically.
 // ---------------------------------------------------------------------------
 
 const batteryPlusBulb: Fixture = {
@@ -69,18 +70,18 @@ const batteryPlusBulb: Fixture = {
     const battery = nodesOfKind(nodes, 'battery')[0];
     const bulb    = nodesOfKind(nodes, 'bulb')[0];
     const V = battery.data.voltageV ?? 9;
-    const I = 0.5; // 500 mA — dangerously high
+    const R = bulb.data.resistanceOhm ?? 18;  // 9V/18Ω = 500mA
+    const I = V / R;
     return {
-      [battery.id]: { voltage: V,     current: I,  power: V * I  },
-      [bulb.id]:    { voltage: V,     current: I,  power: V * I  },
+      [battery.id]: { voltage: V,     current: I,        power: V * I       },
+      [bulb.id]:    { voltage: I * R, current: I,        power: I * I * R   },
     };
   },
 };
 
 // ---------------------------------------------------------------------------
 // Fixture 2 — battery + 1 resistor + bulb (series)
-// Normal operating range. Uses actual resistanceOhm from node data.
-// Bulb modelled as ~0 Ω (all voltage across resistor).
+// Normal operating range. Bulb contributes its resistanceOhm to the total R.
 // ---------------------------------------------------------------------------
 
 const batteryResistorBulb: Fixture = {
@@ -93,13 +94,15 @@ const batteryResistorBulb: Fixture = {
     const battery  = nodesOfKind(nodes, 'battery')[0];
     const resistor = nodesOfKind(nodes, 'resistor')[0];
     const bulb     = nodesOfKind(nodes, 'bulb')[0];
-    const V = battery.data.voltageV ?? 9;
-    const R = resistor.data.resistanceOhm ?? 330;
-    const I = V / R;
+    const V     = battery.data.voltageV ?? 9;
+    const R_ext = resistor.data.resistanceOhm ?? 330;
+    const R_bul = bulb.data.resistanceOhm ?? 18;
+    const Rtot  = R_ext + R_bul;
+    const I     = V / Rtot;
     return {
-      [battery.id]:  { voltage: V,     current: I,     power: V * I      },
-      [resistor.id]: { voltage: I * R, current: I,     power: I * I * R  },
-      [bulb.id]:     { voltage: 0,     current: I,     power: 0          },
+      [battery.id]:  { voltage: V,         current: I, power: V * I          },
+      [resistor.id]: { voltage: I * R_ext, current: I, power: I * I * R_ext  },
+      [bulb.id]:     { voltage: I * R_bul, current: I, power: I * I * R_bul  },
     };
   },
 };
@@ -119,16 +122,17 @@ const batteryTwoSeriesResistorsBulb: Fixture = {
     const battery    = nodesOfKind(nodes, 'battery')[0];
     const resistors  = nodesOfKind(nodes, 'resistor');
     const bulb       = nodesOfKind(nodes, 'bulb')[0];
-    const V    = battery.data.voltageV ?? 9;
-    const R1   = resistors[0].data.resistanceOhm ?? 330;
-    const R2   = resistors[1].data.resistanceOhm ?? 470;
-    const Rtot = R1 + R2;
-    const I    = V / Rtot;
+    const V     = battery.data.voltageV ?? 9;
+    const R1    = resistors[0].data.resistanceOhm ?? 330;
+    const R2    = resistors[1].data.resistanceOhm ?? 470;
+    const R_bul = bulb.data.resistanceOhm ?? 18;
+    const Rtot  = R1 + R2 + R_bul;  // e.g. 330+470+18 = 818 Ω for Lesson 4
+    const I     = V / Rtot;
     return {
-      [battery.id]:     { voltage: V,      current: I, power: V * I      },
-      [resistors[0].id]:{ voltage: I * R1, current: I, power: I * I * R1 },
-      [resistors[1].id]:{ voltage: I * R2, current: I, power: I * I * R2 },
-      [bulb.id]:        { voltage: 0,      current: I, power: 0          },
+      [battery.id]:      { voltage: V,         current: I, power: V * I          },
+      [resistors[0].id]: { voltage: I * R1,    current: I, power: I * I * R1     },
+      [resistors[1].id]: { voltage: I * R2,    current: I, power: I * I * R2     },
+      [bulb.id]:         { voltage: I * R_bul, current: I, power: I * I * R_bul  },
     };
   },
 };
