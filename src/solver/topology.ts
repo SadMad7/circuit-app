@@ -34,14 +34,31 @@
  * ─── Edge cases to handle ─────────────────────────────────────────────────
  * • No battery in circuit: all components → floating/isolated-from-source.
  *
- * • Multiple batteries (series or parallel arrangement):
- *     DFS from each battery's positive terminal. A component is active if it is
- *     reached from ANY battery and that battery's loop is closed.
- *     Do not attempt to solve conflicting voltage sources — that is ohms.ts's concern.
+ * • Multiple batteries: NOT supported. If the circuit contains more than one
+ *     Battery component, return every component as floating/isolated-from-source
+ *     without attempting any DFS. ohms.ts is never called. This covers all lesson
+ *     paths (every core lesson uses exactly one battery). Sandbox users who place
+ *     two batteries see all values go blank, which is informative and safe.
  *
- * • Self-shorted component (terminals.a === terminals.b, produced by converter for
- *     self-loop edges): classify as active if the shared NodeId is on a closed path,
- *     otherwise isolated. The solver (ohms.ts) handles the 0 Ω arithmetic.
+ * • Wires to nowhere: this concept does not exist in Circuit. The converter absorbs
+ *     null-handle edges before Circuit is produced; topology.ts never receives them.
+ *     A terminal with no wire appears as a singleton NodeId (handled by dangling
+ *     detection below). No special case needed here.
+ *
+ * • Dangling vs. self-shorted — IMPORTANT DISTINCTION:
+ *     A terminal is dangling if its NodeId appears on exactly ONE (componentId, terminal)
+ *     pair across the entire frequency map — i.e., nothing else in the circuit
+ *     references that node.
+ *
+ *     A self-shorted component (terminals.a === terminals.b = N, produced by the
+ *     converter for self-loop edges or external wires shorting both terminals to the
+ *     same node) is NOT dangling: the NodeId N appears on two (componentId, terminal)
+ *     pairs — both the 'a' and 'b' entries of that same component. Its frequency map
+ *     count is 2, so it is not a singleton, so it is not dangling.
+ *
+ *     Self-shorted components are classified as active if their shared NodeId lies on
+ *     a closed path from battery.positive to battery.negative; otherwise isolated.
+ *     ohms.ts handles the 0 Ω arithmetic for the short.
  *
  * • Disconnected subgraphs: components in an island with no battery → isolated-from-source.
  *     Components in an island WITH a battery but no return path → isolated-from-source.
@@ -52,7 +69,7 @@
  *
  * • Circuit with a battery and a direct short (battery.positive NodeId === battery.negative
  *     NodeId via wires): technically a short circuit. Classify all components as active;
- *     ohms.ts is responsible for surfacing infinite current.
+ *     ohms.ts is responsible for surfacing the short-circuit error.
  *
  * • Components not referenced by any NodeId (empty components array): return {}.
  *

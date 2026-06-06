@@ -14,25 +14,51 @@
  * ─── Algorithm outline ────────────────────────────────────────────────────
  * 1. Build a resistor network graph from active components:
  *    - Battery → ideal voltage source (known V, unknown I).
- *    - Resistor → known R.
- *    - Bulb → treated as a plain resistor of R = component.resistanceOhm for series/parallel
- *      reduction; voltage across it = I × resistanceOhm, power = I² × resistanceOhm.
+ *    - Resistor → known R = component.resistanceOhm.
+ *    - Bulb → treated identically to a Resistor, R = component.resistanceOhm (18 Ω
+ *      default for Lesson 1). Bulb.resistanceOhm is always > 0; a bulb-only loop
+ *      is never a short circuit. Voltage across the bulb = I × resistanceOhm;
+ *      power = I² × resistanceOhm.
  *    - Switch (closed) → 0 Ω short. Switch (open) → already excluded by topology.ts.
  *
- * 2. Iteratively reduce the network:
- *    a. Series reduction: two resistors sharing exactly one non-battery node
- *       (that node connects only those two components) → combine R_total = R1 + R2.
- *    b. Parallel reduction: two resistors sharing BOTH their nodes →
- *       combine 1/R_total = 1/R1 + 1/R2.
+ * 2. Iteratively reduce the network, maintaining a REDUCTION TREE alongside each
+ *    collapse (this tree is required for back-substitution in step 4):
+ *    a. Series reduction: two components sharing exactly one non-battery node
+ *       (that node connects only those two components) → combine R_equiv = R1 + R2.
+ *       Record in the tree: { rule: 'series', children: [id1, id2], R1, R2 }.
+ *    b. Parallel reduction: two components sharing BOTH their terminal nodes →
+ *       combine 1/R_equiv = 1/R1 + 1/R2.
+ *       Record in the tree: { rule: 'parallel', children: [id1, id2], R1, R2 }.
  *    c. Repeat until a single equivalent resistor remains between battery terminals.
+ *       If no series or parallel reduction is applicable and more than one resistor
+ *       remains, the circuit is not reducible — return { ok: false, reason: 'not-reducible' }.
  *
  * 3. Compute total current: I_total = V_battery / R_equiv.
+ *    Guard: if R_equiv === 0, return { ok: false, reason: 'short-circuit' }.
  *
- * 4. Back-substitute to find per-component voltages and currents:
- *    - Series: same current through all; V_component = I * R_component.
- *    - Parallel: same voltage across all; I_branch = V / R_branch.
+ * 4. Back-substitute by walking the reduction tree in reverse (leaves = original
+ *    components; root = the final equivalent). Assign I and V at each level:
  *
- * 5. Compute power: P = V * I for each component.
+ *    For a series node { children: [A, B], R_A, R_B }:
+ *      I_A = I_B = I_parent   (same current everywhere in series)
+ *      V_A = I_parent × R_A
+ *      V_B = I_parent × R_B
+ *
+ *    For a parallel node { children: [A, B], R_A, R_B }:
+ *      V_A = V_B = V_parent   (same voltage across parallel branches)
+ *      I_A = V_parent / R_A
+ *      I_B = V_parent / R_B
+ *
+ *    Leaf nodes are original component IDs; their I and V are the back-substituted
+ *    values from this pass. Do not skip back-substitution — without it, per-component
+ *    voltages are unavailable and the panel shows 0 V for everything except total.
+ *
+ * 5. Populate SolveResult.nodes (per-NodeId voltages, ground = 0):
+ *    Walk the circuit from battery.negative (= 0 V) through the series chain,
+ *    accumulating V_node = V_prev + V_component at each junction node.
+ *    For parallel branches, both branch-entry nodes share the same voltage.
+ *
+ * 6. Compute power: P = V_component × I_component for each component.
  *
  * ─── Edge cases to handle ─────────────────────────────────────────────────
  * • Single resistor + bulb in series with battery:
@@ -46,19 +72,23 @@
  *     R_equiv = (R1*R2)/(R1+R2). I_total = V/R_equiv.
  *     I_R1 = V/R1, I_R2 = V/R2.
  *
- * • Short circuit (R_equiv = 0 or a component with 0 Ω directly across battery):
- *     Return an error result (or a sentinel with current=Infinity).
+ * • Short circuit (R_equiv = 0): only reachable via a closed switch (0 Ω) or a
+ *     sandbox wire directly shorting battery terminals. Bulbs are never 0 Ω —
+ *     component.resistanceOhm is always > 0. Return { ok: false, reason: 'short-circuit' }.
  *     Do not throw — callers must handle the error result gracefully.
  *
  * • Open circuit passed in (should not happen; topology.ts excludes open components):
- *     Return error result.
+ *     Return { ok: false, reason: 'open-circuit' }.
+ *
+ * • Empty activeIds: return { ok: true, components: {} }. Nothing to solve.
  *
  * • Circuit not reducible to series/parallel (e.g., Wheatstone bridge):
- *     Return error result. This topology is explicitly out of scope per CLAUDE.md.
+ *     Return { ok: false, reason: 'not-reducible' }. Out of scope per CLAUDE.md.
  *
- * • Multiple batteries in series: treat as single V_total = sum(V_i) battery.
- *     Multiple batteries in parallel with equal voltages: treat as single battery.
- *     Conflicting parallel batteries (different voltages): return error result.
+ * • Multiple batteries: NOT supported. topology.ts guarantees at most one battery
+ *     reaches the active set (it returns all-isolated when multiple batteries are
+ *     present). If multiple batteries appear in activeIds despite this, return
+ *     { ok: false, reason: 'conflicting-sources' } as a defensive guard.
  *
  * • not-reducible result and the adapter mapping:
  *     When `solver/index.ts` receives `{ ok: false, reason: 'not-reducible' }`, it maps
