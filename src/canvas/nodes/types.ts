@@ -10,6 +10,9 @@ import type { ComponentKind } from '../../domain/component';
  *   voltageV      — battery only
  *   resistanceOhm — resistor only
  *   closed        — switch only (bonus lesson 7, deferred)
+ *   slider        — resistor only; present ONLY when the lesson enables a
+ *                   resistance slider (lesson 3). Not an intrinsic resistor
+ *                   property — resistors without it render no slider.
  */
 export type AppNodeData = {
   kind: ComponentKind;
@@ -18,6 +21,7 @@ export type AppNodeData = {
   voltageV?: number;
   resistanceOhm?: number;
   closed?: boolean;
+  slider?: { min: number; max: number };
 };
 
 /** The React Flow node type used throughout the app. */

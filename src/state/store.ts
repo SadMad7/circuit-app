@@ -32,8 +32,9 @@ import { loadProgress, saveProgress } from '../persistence/storage';
 // ---------------------------------------------------------------------------
 import { lesson01 } from '../lessons/definitions/lesson-01-complete-loop';
 import { lesson02 } from '../lessons/definitions/lesson-02-resistor';
+import { lesson03 } from '../lessons/definitions/lesson-03-ohms-law';
 
-const LESSONS: Lesson[] = [lesson01, lesson02];
+const LESSONS: Lesson[] = [lesson01, lesson02, lesson03];
 
 // ---------------------------------------------------------------------------
 // State shape
@@ -60,6 +61,7 @@ interface AppState {
   completeCurrentLesson: () => void;
   triggerSolve: () => void;
   insertComponentOnEdge: (edgeId: string, entry: PaletteEntry) => void;
+  setResistance: (componentId: string, ohm: number) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +120,24 @@ export const useAppStore = create<AppState>((set, get) => {
       set((state) => ({
         solveResult: runSolve(state.nodes, state.edges),
       }));
+    },
+
+    /**
+     * Commits a new resistance value for one component and re-solves.
+     *
+     * Called on slider RELEASE (lesson 3) — never during the drag. A
+     * resistance change is just new node data flowing through the normal
+     * convertToCircuit → solve path; there is no separate "param solve".
+     */
+    setResistance: (componentId: string, ohm: number) => {
+      set((state) => {
+        const nodes = state.nodes.map((n) =>
+          n.id === componentId
+            ? { ...n, data: { ...n.data, resistanceOhm: ohm } }
+            : n,
+        );
+        return { nodes, solveResult: runSolve(nodes, state.edges) };
+      });
     },
 
     /**
