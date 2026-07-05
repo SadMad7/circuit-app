@@ -49,7 +49,12 @@ export function LessonPlayer() {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Check advancement on every solveResult change
+  // Check advancement on every solveResult change.
+  //
+  // The advance timer is cleared only when the circuit breaks (below) or on
+  // unmount (separate effect) — never as this effect's cleanup. Clearing on
+  // cleanup would cancel the timer the moment setGoalMet(true) re-runs the
+  // effect, so the lesson would never advance.
   useEffect(() => {
     if (!lesson) return;
 
@@ -58,21 +63,26 @@ export function LessonPlayer() {
     if (met && !goalMet) {
       setGoalMet(true);
       advanceTimer.current = setTimeout(() => {
+        advanceTimer.current = null;
         completeCurrentLesson();
         setGoalMet(false);
       }, ADVANCE_DELAY);
-    }
-
-    if (!met && goalMet) {
-      // User broke the circuit after meeting the goal — cancel advance
-      if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    } else if (!met && goalMet) {
+      // User broke the circuit after meeting the goal — cancel the advance
+      if (advanceTimer.current) {
+        clearTimeout(advanceTimer.current);
+        advanceTimer.current = null;
+      }
       setGoalMet(false);
     }
+  }, [solveResult, lesson, goalMet, completeCurrentLesson]);
 
+  // Clear any pending advance timer on unmount only.
+  useEffect(() => {
     return () => {
       if (advanceTimer.current) clearTimeout(advanceTimer.current);
     };
-  }, [solveResult, lesson, goalMet, completeCurrentLesson]);
+  }, []);
 
   if (!lesson) {
     return (
