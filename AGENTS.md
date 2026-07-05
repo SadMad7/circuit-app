@@ -121,7 +121,7 @@ App-level state (the Zustand stores) holds React Flow `nodes` and `edges`, the c
 - `solver/topology.ts` — DFS reachability for `dangling` / `isolated-from-source` classification
 - `solver/ohms.ts` — Phase 2 series/parallel reduction solver
 
-**`solve()` signature:** `solver/index.ts` exports `solve(rfNodes: AppNode[], rfEdges: Edge[]): SolveResult`. In Phase 1 it calls `reachability.ts` directly. In Phase 2 it will call `convertToCircuit()` internally — `Circuit` is never visible at the call site in the store. Whether to refactor the public signature to `solve(circuit: Circuit)` and push the conversion into the store is a **pending Phase 2 decision**; do not resolve it unilaterally.
+**`solve()` signature:** `solver/index.ts` exports `solve(circuit: Circuit): SolveResult` and depends only on domain types — no React Flow imports. The store (`state/store.ts`) owns the React Flow → `Circuit` conversion and calls `solve(convertToCircuit(nodes, edges))`, so `Circuit` is the solver's only input and the converter stays a UI-layer concern.
 
 **The rule:** When Codex reaches a Codex-owned file, Codex writes a strict TypeScript stub — exported function signature(s), input/output types, JSDoc describing behavior and edge cases — and stops. Do not attempt internal math or graph logic. The stub is the contract Codex implements against; the implementation comes back wholesale.
 
