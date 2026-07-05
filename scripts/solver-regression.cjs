@@ -124,11 +124,11 @@ function testLesson1Anchor() {
     edge('e2', 'battery-1', 'positive', 'led-1', 'a'),
   ];
 
-  const open = solve(nodes, openEdges);
+  const open = solve(convertToCircuit(nodes, openEdges));
   floating(open, 'battery-1', 'dangling');
   floating(open, 'led-1', 'dangling');
 
-  const closed = solve(nodes, closedEdges);
+  const closed = solve(convertToCircuit(nodes, closedEdges));
   const led = active(closed, 'led-1');
   active(closed, 'battery-1');
 
@@ -142,11 +142,11 @@ function testSeriesAndParallelValues() {
   const led = bulb();
   const r1 = resistor('r1', 330);
 
-  const series = solve([b, r1, led], [
+  const series = solve(convertToCircuit([b, r1, led], [
     edge('e1', 'battery-1', 'positive', 'r1', 'a'),
     edge('e2', 'r1', 'b', 'led-1', 'a'),
     edge('e3', 'led-1', 'b', 'battery-1', 'negative'),
-  ]);
+  ]));
 
   const seriesCurrent = 9 / 348;
   approx(active(series, 'r1').current, seriesCurrent);
@@ -155,12 +155,12 @@ function testSeriesAndParallelValues() {
 
   const pr1 = resistor('pr1', 1000);
   const pr2 = resistor('pr2', 1000);
-  const parallel = solve([b, pr1, pr2], [
+  const parallel = solve(convertToCircuit([b, pr1, pr2], [
     edge('e1', 'battery-1', 'positive', 'pr1', 'a'),
     edge('e2', 'pr1', 'b', 'battery-1', 'negative'),
     edge('e3', 'battery-1', 'positive', 'pr2', 'a'),
     edge('e4', 'pr2', 'b', 'battery-1', 'negative'),
-  ]);
+  ]));
 
   approx(active(parallel, 'pr1').current, 0.009);
   approx(active(parallel, 'pr2').current, 0.009);
@@ -200,13 +200,13 @@ function testBypassedComponentZeroValues() {
   const r1 = resistor('r1', 100);
   const bypassed = resistor('r2', 330);
   const r3 = resistor('r3', 200);
-  const result = solve([b, r1, bypassed, r3], [
+  const result = solve(convertToCircuit([b, r1, bypassed, r3], [
     edge('e1', 'battery-1', 'positive', 'r1', 'a'),
     edge('e2', 'r1', 'b', 'r2', 'a'),
     edge('e3', 'r2', 'b', 'r1', 'b'),
     edge('e4', 'r2', 'b', 'r3', 'a'),
     edge('e5', 'r3', 'b', 'battery-1', 'negative'),
-  ]);
+  ]));
   const state = active(result, 'r2');
 
   approx(state.voltage, 0);
@@ -215,9 +215,9 @@ function testBypassedComponentZeroValues() {
 }
 
 function testBatteryShortFlattensToUnsolvable() {
-  const result = solve([battery()], [
+  const result = solve(convertToCircuit([battery()], [
     edge('e1', 'battery-1', 'positive', 'battery-1', 'negative'),
-  ]);
+  ]));
 
   floating(result, 'battery-1', 'unsolvable');
 }

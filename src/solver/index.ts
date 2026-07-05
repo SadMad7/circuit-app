@@ -1,18 +1,18 @@
 /**
  * solve() is the single UI-facing entry point for circuit evaluation.
  *
+ * The solver is a pure function of the Circuit domain model — it does not know
+ * about React Flow. Callers convert their graph (convertToCircuit) before calling.
+ *
  * Phase 2 path:
- * 1. Convert React Flow graph data into the Circuit domain model.
- * 2. Classify topology as dangling, isolated-from-source, or active.
- * 3. If no components are active, skip numeric solving.
- * 4. Run the closed-loop Ohm's law solver for active components only.
+ * 1. Classify topology as dangling, isolated-from-source, or active.
+ * 2. If no components are active, skip numeric solving.
+ * 3. Run the closed-loop Ohm's law solver for active components only.
  */
 
-import type { Edge } from '@xyflow/react';
-import type { AppNode } from '../canvas/nodes/types';
+import type { Circuit } from '../domain/circuit';
 import type { ComponentState, SolveResult } from '../domain/solve-result';
 import type { OhmsResult } from './ohms';
-import { convertToCircuit } from '../canvas/converter';
 import { classifyTopology } from './topology';
 import { solveOhms } from './ohms';
 
@@ -41,12 +41,11 @@ export function applyOhmsResult(
   );
 }
 
-export function solve(nodes: AppNode[], edges: Edge[]): SolveResult {
-  if (nodes.length === 0) {
+export function solve(circuit: Circuit): SolveResult {
+  if (circuit.components.length === 0) {
     return { components: {}, nodes: {} };
   }
 
-  const circuit = convertToCircuit(nodes, edges);
   const classifications = classifyTopology(circuit);
   const activeIds = Object.entries(classifications)
     .filter(([, state]) => state.status === 'active')

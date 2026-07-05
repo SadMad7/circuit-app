@@ -24,6 +24,7 @@ import type { AppNode } from '../canvas/nodes/types';
 import type { SolveResult } from '../domain/solve-result';
 import type { Lesson } from '../lessons/types';
 import { solve } from '../solver/index';
+import { convertToCircuit } from '../canvas/converter';
 import { loadProgress, saveProgress } from '../persistence/storage';
 
 // ---------------------------------------------------------------------------
@@ -68,7 +69,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
   /** Run the solver against current nodes/edges and update solveResult. */
   const runSolve = (nodes: AppNode[], edges: Edge[]): SolveResult => {
-    return solve(nodes, edges);
+    return solve(convertToCircuit(nodes, edges));
   };
 
   return {
