@@ -11,6 +11,13 @@ import { useAppStore } from '../state/store';
 import type { ComponentState } from '../domain/solve-result';
 import type { AppNode } from '../canvas/nodes/types';
 
+/**
+ * Warning threshold: a live current above this shows the ⚠ too-much-current
+ * treatment. Purely derived from the solved current on every render — never a
+ * flag a lesson sets or clears.
+ */
+const CURRENT_WARNING_A = 0.3;
+
 // ---------------------------------------------------------------------------
 // Formatting helpers
 // ---------------------------------------------------------------------------
@@ -48,6 +55,8 @@ interface ReadoutRowProps {
 function ReadoutRow({ node, state }: ReadoutRowProps) {
   const label = node.data.label || node.data.kind;
   const isActive = state?.status === 'active';
+  const tooMuchCurrent =
+    state?.status === 'active' && state.current > CURRENT_WARNING_A;
 
   return (
     <div
@@ -83,14 +92,25 @@ function ReadoutRow({ node, state }: ReadoutRowProps) {
 
       {/* Values grid */}
       {isActive && state.status === 'active' && (
-        <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-          <Metric label="Voltage" value={fmtV(state.voltage)} color="text-blue-600" />
-          <Metric label="Current" value={fmtA(state.current)} color="text-green-600" />
-          {node.data.resistanceOhm !== undefined && node.data.kind !== 'bulb' && (
-            <Metric label="Resistance" value={fmtR(node.data.resistanceOhm)} color="text-orange-600" />
+        <>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+            <Metric label="Voltage" value={fmtV(state.voltage)} color="text-blue-600" />
+            <Metric
+              label="Current"
+              value={tooMuchCurrent ? `⚠ ${fmtA(state.current)}` : fmtA(state.current)}
+              color={tooMuchCurrent ? 'text-red-600' : 'text-green-600'}
+            />
+            {node.data.resistanceOhm !== undefined && node.data.kind !== 'bulb' && (
+              <Metric label="Resistance" value={fmtR(node.data.resistanceOhm)} color="text-orange-600" />
+            )}
+            <Metric label="Power" value={fmtP(state.power)} color="text-purple-600" />
+          </div>
+          {tooMuchCurrent && (
+            <p className="mt-1.5 text-[11px] font-semibold text-red-600">
+              ⚠ too much current
+            </p>
           )}
-          <Metric label="Power" value={fmtP(state.power)} color="text-purple-600" />
-        </div>
+        </>
       )}
 
       {!isActive && (

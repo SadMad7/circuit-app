@@ -28,6 +28,20 @@ export type ValidatorPredicate = (solveResult: SolveResult | null) => boolean;
  */
 export type HintScript = (solveResult: SolveResult | null, edges: Edge[]) => string;
 
+/**
+ * One draggable entry in the palette tray.
+ * The lesson owns the component's value (e.g. a 330 Ω resistor); the insert
+ * action reads it off the entry being placed. Lesson 3's slider later writes
+ * to the same resistanceOhm field — one home for a resistor's value.
+ */
+export interface PaletteEntry {
+  kind: ComponentKind;
+  /** Chip label shown in the tray (sentence case), e.g. "330 Ω resistor". */
+  label: string;
+  /** Resistor-kind entries only. */
+  resistanceOhm?: number;
+}
+
 /** A single lesson definition — data only, no logic. */
 export interface Lesson {
   id: string;
@@ -41,10 +55,10 @@ export interface Lesson {
     edges: Edge[];
   };
   /**
-   * Component kinds the palette should offer in this lesson.
+   * Palette entries offered in this lesson.
    * Empty array = no palette (Lesson 1 — drag-to-wire only).
    */
-  availablePaletteKinds: ComponentKind[];
+  palette: PaletteEntry[];
   /**
    * Returns the hint string appropriate for the current circuit state.
    * Driven by ComponentState — no bespoke checks, only reads status/reason.

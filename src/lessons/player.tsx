@@ -15,12 +15,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '../state/store';
 
-// Lesson registry — for now just lesson 1; Phase 3 adds the rest
+// Lesson registry — Phase 3 adds the rest
 import { lesson01 } from './definitions/lesson-01-complete-loop';
+import { lesson02 } from './definitions/lesson-02-resistor';
 import type { Lesson } from './types';
 
 const LESSONS_MAP: Record<string, Lesson> = {
   [lesson01.id]: lesson01,
+  [lesson02.id]: lesson02,
 };
 
 // Delay between goal-met and actual advance (ms)

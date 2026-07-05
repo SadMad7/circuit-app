@@ -25,6 +25,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { useAppStore } from '../state/store';
+import { PALETTE_DND_MIME } from '../palette/palette';
 import { BatteryNode } from './nodes/battery-node';
 import { BulbNode } from './nodes/bulb-node';
 import { ResistorNode } from './nodes/resistor-node';
@@ -47,11 +48,45 @@ export function CircuitCanvas() {
   const onNodesChange = useAppStore((s) => s.onNodesChange);
   const onEdgesChange = useAppStore((s) => s.onEdgesChange);
   const onConnect     = useAppStore((s) => s.onConnect);
+  const insertComponentOnEdge = useAppStore((s) => s.insertComponentOnEdge);
 
   const handleConnect = useCallback(onConnect, [onConnect]);
 
+  // Palette drop-to-insert. dragover must preventDefault or the browser
+  // refuses the drop; the payload itself is only readable in the drop event,
+  // so dragover checks the type list.
+  const handleDragOver = useCallback((event: React.DragEvent) => {
+    if (event.dataTransfer.types.includes(PALETTE_DND_MIME)) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    }
+  }, []);
+
+  // React Flow renders each edge (including its wide invisible interaction
+  // path) inside a .react-flow__edge group carrying data-id, so the element
+  // under the drop cursor resolves the target wire directly. Off-wire drops
+  // are a no-op — the chip snaps back, nothing is inserted.
+  const handleDrop = useCallback(
+    (event: React.DragEvent) => {
+      const raw = event.dataTransfer.getData(PALETTE_DND_MIME);
+      if (!raw) return;
+      event.preventDefault();
+
+      const edgeEl = (event.target as Element).closest?.('.react-flow__edge');
+      const edgeId = edgeEl?.getAttribute('data-id');
+      if (!edgeId) return;
+
+      insertComponentOnEdge(edgeId, JSON.parse(raw));
+    },
+    [insertComponentOnEdge],
+  );
+
   return (
-    <div className="w-full h-full rounded-xl overflow-hidden bg-white border border-slate-200 shadow-inner">
+    <div
+      className="w-full h-full rounded-xl overflow-hidden bg-white border border-slate-200 shadow-inner"
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
