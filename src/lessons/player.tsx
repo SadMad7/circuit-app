@@ -19,6 +19,7 @@ import { useAppStore } from '../state/store';
 import { lesson01 } from './definitions/lesson-01-complete-loop';
 import { lesson02 } from './definitions/lesson-02-resistor';
 import { lesson03 } from './definitions/lesson-03-ohms-law';
+import { lesson04 } from './definitions/lesson-04-series';
 import type { Lesson } from './types';
 import {
   INITIAL_SLIDER_ZONES,
@@ -30,6 +31,7 @@ const LESSONS_MAP: Record<string, Lesson> = {
   [lesson01.id]: lesson01,
   [lesson02.id]: lesson02,
   [lesson03.id]: lesson03,
+  [lesson04.id]: lesson04,
 };
 
 // Delay between goal-met and actual advance (ms)
