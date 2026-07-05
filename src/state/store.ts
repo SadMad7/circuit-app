@@ -33,8 +33,9 @@ import { loadProgress, saveProgress } from '../persistence/storage';
 import { lesson01 } from '../lessons/definitions/lesson-01-complete-loop';
 import { lesson02 } from '../lessons/definitions/lesson-02-resistor';
 import { lesson03 } from '../lessons/definitions/lesson-03-ohms-law';
+import { lesson04 } from '../lessons/definitions/lesson-04-series';
 
-const LESSONS: Lesson[] = [lesson01, lesson02, lesson03];
+const LESSONS: Lesson[] = [lesson01, lesson02, lesson03, lesson04];
 
 // ---------------------------------------------------------------------------
 // State shape
