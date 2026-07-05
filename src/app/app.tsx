@@ -19,12 +19,14 @@ import { ValueReadout }  from '../panel/value-readout';
 import { useAppStore }   from '../state/store';
 import { lesson01 }      from '../lessons/definitions/lesson-01-complete-loop';
 import { lesson02 }      from '../lessons/definitions/lesson-02-resistor';
+import { lesson03 }      from '../lessons/definitions/lesson-03-ohms-law';
 import type { Lesson, PaletteEntry } from '../lessons/types';
 
 // Lesson registry — Phase 3 will grow this list
 const LESSON_MAP: Record<string, Lesson> = {
   [lesson01.id]: lesson01,
   [lesson02.id]: lesson02,
+  [lesson03.id]: lesson03,
 };
 
 export function App() {

@@ -64,6 +64,23 @@ export interface Lesson {
    * Driven by ComponentState — no bespoke checks, only reads status/reason.
    */
   hint: HintScript;
-  /** Returns true when the lesson goal is met → lesson player triggers auto-advance. */
-  advancement: ValidatorPredicate;
+  /**
+   * Returns true when the lesson goal is met → lesson player triggers auto-advance.
+   * Omitted when the lesson advances on interaction history instead (sliderGoal).
+   */
+  advancement?: ValidatorPredicate;
+  /**
+   * Interaction-history goal (lesson 3): advance once the user has committed
+   * the named component's resistance into BOTH zones during the session.
+   * This is a different category from `advancement` — it watches user actions
+   * over time, not circuit state, so it cannot be a SolveResult-reading
+   * validator. The lesson player tracks it in per-lesson memory.
+   */
+  sliderGoal?: {
+    componentId: string;
+    /** Low zone: committed resistance <= lowMax (ohms). */
+    lowMax: number;
+    /** High zone: committed resistance >= highMin (ohms). */
+    highMin: number;
+  };
 }

@@ -18,11 +18,18 @@ import { useAppStore } from '../state/store';
 // Lesson registry — Phase 3 adds the rest
 import { lesson01 } from './definitions/lesson-01-complete-loop';
 import { lesson02 } from './definitions/lesson-02-resistor';
+import { lesson03 } from './definitions/lesson-03-ohms-law';
 import type { Lesson } from './types';
+import {
+  INITIAL_SLIDER_ZONES,
+  trackSliderZones,
+  sliderZoneGoalMet,
+} from './interaction';
 
 const LESSONS_MAP: Record<string, Lesson> = {
   [lesson01.id]: lesson01,
   [lesson02.id]: lesson02,
+  [lesson03.id]: lesson03,
 };
 
 // Delay between goal-met and actual advance (ms)
@@ -41,6 +48,13 @@ export function LessonPlayer() {
   const [goalMet, setGoalMet] = useState(false);
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Per-lesson interaction history (lesson 3's slider zones). This is a
+  // different category from the SolveResult validators: it records what the
+  // user DID over time, not what the circuit IS. A ref (not state) because it
+  // only matters when a commit re-solves — the solveResult change already
+  // re-runs the advancement effect.
+  const sliderZones = useRef(INITIAL_SLIDER_ZONES);
+
   // Kick off the first lesson on mount if nothing is loaded yet
   const nodes = useAppStore((s) => s.nodes);
   useEffect(() => {
@@ -49,7 +63,17 @@ export function LessonPlayer() {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Reset interaction history whenever the lesson changes.
+  useEffect(() => {
+    sliderZones.current = INITIAL_SLIDER_ZONES;
+  }, [currentLessonId]);
+
   // Check advancement on every solveResult change.
+  //
+  // Two goal categories, one per lesson:
+  //   • sliderGoal — interaction history: fold the committed resistance into
+  //     the zone record, advance once both zones have been visited.
+  //   • advancement — a pure function of the current SolveResult.
   //
   // The advance timer is cleared only when the circuit breaks (below) or on
   // unmount (separate effect) — never as this effect's cleanup. Clearing on
@@ -58,7 +82,23 @@ export function LessonPlayer() {
   useEffect(() => {
     if (!lesson) return;
 
-    const met = lesson.advancement(solveResult);
+    let met: boolean;
+    if (lesson.sliderGoal) {
+      // resistanceOhm only changes on slider release, so node data always
+      // holds the committed value — never a mid-drag one.
+      const target = nodes.find((n) => n.id === lesson.sliderGoal!.componentId);
+      const committedOhm = target?.data.resistanceOhm;
+      if (committedOhm !== undefined) {
+        sliderZones.current = trackSliderZones(
+          sliderZones.current,
+          committedOhm,
+          lesson.sliderGoal,
+        );
+      }
+      met = sliderZoneGoalMet(sliderZones.current);
+    } else {
+      met = lesson.advancement ? lesson.advancement(solveResult) : false;
+    }
 
     if (met && !goalMet) {
       setGoalMet(true);
@@ -75,7 +115,7 @@ export function LessonPlayer() {
       }
       setGoalMet(false);
     }
-  }, [solveResult, lesson, goalMet, completeCurrentLesson]);
+  }, [solveResult, nodes, lesson, goalMet, completeCurrentLesson]);
 
   // Clear any pending advance timer on unmount only.
   useEffect(() => {
