@@ -1,100 +1,212 @@
 /**
- * CODEX-OWNED — do not implement here. Replaces solver/reachability.ts in Phase 2.
+ * Topology classification for Phase 2.
  *
- * Classifies each component in a Circuit as floating (dangling or isolated-from-source)
- * or active (part of a closed loop through a battery). Works on the Circuit domain model
- * produced by converter.ts (union-find NodeIds), not on the React Flow graph directly.
- *
- * ─── Algorithm outline ────────────────────────────────────────────────────
- * 1. Detect dangling components: a component is dangling if any of its terminal NodeIds
- *    appears on exactly one component (i.e., that terminal is not shared with another
- *    component's terminal — no wire was connected to it).
- *    Implementation note: build a frequency map of NodeId → list of (componentId, terminal)
- *    references. A NodeId with only one entry is a dangling terminal.
- *
- * 2. Build a component-level adjacency graph: two components are adjacent if they share
- *    a NodeId (i.e., they are wired together at that node).
- *
- * 3. For each battery in the circuit, run DFS/BFS from the battery's `positive` NodeId,
- *    traversing the component adjacency graph. Mark every component reached as
- *    `reachable-from-source`.
- *
- * 4. A component is `active` if:
- *    (a) it is not dangling, AND
- *    (b) it is reachable from a battery's positive terminal, AND
- *    (c) the battery's negative terminal is also reachable from the component
- *        (i.e., there is a return path — the loop is closed).
- *    Condition (c) can be checked by also running DFS backward from battery.negative
- *    and intersecting the two reachable sets, OR by checking that battery.negative
- *    was visited in the forward DFS from battery.positive (which is true iff the
- *    circuit is closed).
- *
- * 5. A component is `isolated-from-source` if it is not dangling but is not active.
- *
- * ─── Edge cases to handle ─────────────────────────────────────────────────
- * • No battery in circuit: all components → floating/isolated-from-source.
- *
- * • Multiple batteries: NOT supported. If the circuit contains more than one
- *     Battery component, return every component as floating/isolated-from-source
- *     without attempting any DFS. ohms.ts is never called. This covers all lesson
- *     paths (every core lesson uses exactly one battery). Sandbox users who place
- *     two batteries see all values go blank, which is informative and safe.
- *
- * • Wires to nowhere: this concept does not exist in Circuit. The converter absorbs
- *     null-handle edges before Circuit is produced; topology.ts never receives them.
- *     A terminal with no wire appears as a singleton NodeId (handled by dangling
- *     detection below). No special case needed here.
- *
- * • Dangling vs. self-shorted — IMPORTANT DISTINCTION:
- *     A terminal is dangling if its NodeId appears on exactly ONE (componentId, terminal)
- *     pair across the entire frequency map — i.e., nothing else in the circuit
- *     references that node.
- *
- *     A self-shorted component (terminals.a === terminals.b = N, produced by the
- *     converter for self-loop edges or external wires shorting both terminals to the
- *     same node) is NOT dangling: the NodeId N appears on two (componentId, terminal)
- *     pairs — both the 'a' and 'b' entries of that same component. Its frequency map
- *     count is 2, so it is not a singleton, so it is not dangling.
- *
- *     Self-shorted components are classified as active if their shared NodeId lies on
- *     a closed path from battery.positive to battery.negative; otherwise isolated.
- *     ohms.ts handles the 0 Ω arithmetic for the short.
- *
- * • Disconnected subgraphs: components in an island with no battery → isolated-from-source.
- *     Components in an island WITH a battery but no return path → isolated-from-source.
- *
- * • Open switch (Lesson 7, deferred): treat a switch with closed=false as if the wire
- *     between its terminals does not exist — do not add its internal edge to the
- *     adjacency graph. This makes downstream components isolated-from-source.
- *
- * • Circuit with a battery and a direct short (battery.positive NodeId === battery.negative
- *     NodeId via wires): technically a short circuit. Classify all components as active;
- *     ohms.ts is responsible for surfacing the short-circuit error.
- *
- * • Components not referenced by any NodeId (empty components array): return {}.
- *
- * ─── Return shape ─────────────────────────────────────────────────────────
- * Returns only the floating/active classification, NOT V/I/P values.
- * Those are computed by ohms.ts for active components.
- *
- * ─── Not in scope ─────────────────────────────────────────────────────────
- * Numeric solving. This file is topology-only.
+ * This file decides whether each component is dangling, isolated from a source,
+ * or part of a closed battery loop. It does not compute numeric values.
  */
 
+import type { Component } from '../domain/component';
 import type { Circuit } from '../domain/circuit';
 import type { ComponentState } from '../domain/solve-result';
 
+type TerminalRef = {
+  componentId: string;
+  nodeId: string;
+};
+
+type ConductiveEdge = {
+  componentId: string;
+  from: string;
+  to: string;
+};
+
+const activePlaceholder: ComponentState = {
+  status: 'active',
+  voltage: 0,
+  current: 0,
+  power: 0,
+};
+
+function floating(reason: 'dangling' | 'isolated-from-source'): ComponentState {
+  return { status: 'floating', reason };
+}
+
+function terminalNodeIds(component: Component): string[] {
+  switch (component.kind) {
+    case 'battery':
+      return [component.terminals.positive, component.terminals.negative];
+    case 'resistor':
+    case 'bulb':
+    case 'switch':
+      return [component.terminals.a, component.terminals.b];
+  }
+}
+
+function conductiveEdgeFor(component: Component): ConductiveEdge | null {
+  switch (component.kind) {
+    case 'battery':
+      return null;
+    case 'switch':
+      if (!component.closed) return null;
+      return {
+        componentId: component.id,
+        from: component.terminals.a,
+        to: component.terminals.b,
+      };
+    case 'resistor':
+    case 'bulb':
+      return {
+        componentId: component.id,
+        from: component.terminals.a,
+        to: component.terminals.b,
+      };
+  }
+}
+
+function buildTerminalRefs(components: Component[]): Map<string, TerminalRef[]> {
+  const refsByNode = new Map<string, TerminalRef[]>();
+
+  for (const component of components) {
+    for (const nodeId of terminalNodeIds(component)) {
+      const refs = refsByNode.get(nodeId) ?? [];
+      refs.push({ componentId: component.id, nodeId });
+      refsByNode.set(nodeId, refs);
+    }
+  }
+
+  return refsByNode;
+}
+
+function isDangling(
+  component: Component,
+  refsByNode: Map<string, TerminalRef[]>,
+): boolean {
+  return terminalNodeIds(component).some((nodeId) => {
+    const refs = refsByNode.get(nodeId);
+    return refs === undefined || refs.length === 1;
+  });
+}
+
+function addAdjacency(
+  adjacency: Map<string, ConductiveEdge[]>,
+  edge: ConductiveEdge,
+) {
+  const fromEdges = adjacency.get(edge.from) ?? [];
+  fromEdges.push(edge);
+  adjacency.set(edge.from, fromEdges);
+
+  const toEdges = adjacency.get(edge.to) ?? [];
+  toEdges.push(edge);
+  adjacency.set(edge.to, toEdges);
+}
+
+function otherNode(edge: ConductiveEdge, nodeId: string): string {
+  return edge.from === nodeId ? edge.to : edge.from;
+}
+
+function walkFrom(
+  startNodeId: string,
+  adjacency: Map<string, ConductiveEdge[]>,
+): { nodes: Set<string>; components: Set<string> } {
+  const nodes = new Set<string>([startNodeId]);
+  const components = new Set<string>();
+  const queue = [startNodeId];
+
+  while (queue.length > 0) {
+    const nodeId = queue.shift();
+    if (nodeId === undefined) continue;
+
+    for (const edge of adjacency.get(nodeId) ?? []) {
+      components.add(edge.componentId);
+
+      const nextNodeId = otherNode(edge, nodeId);
+      if (!nodes.has(nextNodeId)) {
+        nodes.add(nextNodeId);
+        queue.push(nextNodeId);
+      }
+    }
+  }
+
+  return { nodes, components };
+}
+
 /**
- * Classifies each component in the circuit as floating or active (placeholder values).
- * Active components receive voltage=0/current=0/power=0 — ohms.ts overlays real values.
+ * Classifies each component in the circuit as floating or active.
  *
- * @param circuit  Domain model from convertToCircuit().
- * @returns        Record<componentId, ComponentState> with placeholder active values.
+ * Active components receive placeholder numeric values. ohms.ts overlays real
+ * voltage, current, and power after topology proves the loop is closed.
  */
 export function classifyTopology(
   circuit: Circuit,
 ): Record<string, ComponentState> {
-  // Codex implements this body.
-  void circuit;
-  return {};
+  const components = circuit.components;
+  if (components.length === 0) return {};
+
+  const refsByNode = buildTerminalRefs(components);
+  const danglingIds = new Set(
+    components
+      .filter((component) => isDangling(component, refsByNode))
+      .map((component) => component.id),
+  );
+
+  const batteries = components.filter((component) => component.kind === 'battery');
+  if (batteries.length > 1) {
+    return Object.fromEntries(
+      components.map((component) => [
+        component.id,
+        floating('isolated-from-source'),
+      ]),
+    );
+  }
+
+  if (batteries.length === 0) {
+    return Object.fromEntries(
+      components.map((component) => [
+        component.id,
+        floating('isolated-from-source'),
+      ]),
+    );
+  }
+
+  const battery = batteries[0];
+  const adjacency = new Map<string, ConductiveEdge[]>();
+
+  for (const component of components) {
+    if (danglingIds.has(component.id)) continue;
+
+    const edge = conductiveEdgeFor(component);
+    if (edge) addAdjacency(adjacency, edge);
+  }
+
+  const walk = walkFrom(battery.terminals.positive, adjacency);
+  const loopIsClosed =
+    battery.terminals.positive === battery.terminals.negative ||
+    walk.nodes.has(battery.terminals.negative);
+
+  if (!loopIsClosed) {
+    return Object.fromEntries(
+      components.map((component) => [
+        component.id,
+        danglingIds.has(component.id)
+          ? floating('dangling')
+          : floating('isolated-from-source'),
+      ]),
+    );
+  }
+
+  return Object.fromEntries(
+    components.map((component) => {
+      if (danglingIds.has(component.id)) {
+        return [component.id, floating('dangling')];
+      }
+
+      const isActive =
+        component.id === battery.id || walk.components.has(component.id);
+
+      return [
+        component.id,
+        isActive ? activePlaceholder : floating('isolated-from-source'),
+      ];
+    }),
+  );
 }

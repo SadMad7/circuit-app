@@ -1,130 +1,556 @@
 /**
- * CODEX-OWNED — do not implement here. Phase 2 only.
+ * Series/parallel Ohm's law solver for Phase 2.
  *
- * Computes voltage, current, and power for every active component in a Circuit
- * using series/parallel reduction + Ohm's law. Receives only the components that
- * topology.ts classified as active (i.e., part of a closed loop).
- *
- * ─── Solver ceiling ───────────────────────────────────────────────────────
- * Series/parallel reduction + Ohm's law ONLY.
- * Explicitly out of scope: nodal analysis (MNA), mesh currents, admittance matrices,
- * AC/transient analysis, op-amps, frequency response.
- * If a circuit cannot be reduced to a single equivalent resistance, return an error result.
- *
- * ─── Algorithm outline ────────────────────────────────────────────────────
- * 1. Build a resistor network graph from active components:
- *    - Battery → ideal voltage source (known V, unknown I).
- *    - Resistor → known R = component.resistanceOhm.
- *    - Bulb → treated identically to a Resistor, R = component.resistanceOhm (18 Ω
- *      default for Lesson 1). Bulb.resistanceOhm is always > 0; a bulb-only loop
- *      is never a short circuit. Voltage across the bulb = I × resistanceOhm;
- *      power = I² × resistanceOhm.
- *    - Switch (closed) → 0 Ω short. Switch (open) → already excluded by topology.ts.
- *
- * 2. Iteratively reduce the network, maintaining a REDUCTION TREE alongside each
- *    collapse (this tree is required for back-substitution in step 4):
- *    a. Series reduction: two components sharing exactly one non-battery node
- *       (that node connects only those two components) → combine R_equiv = R1 + R2.
- *       Record in the tree: { rule: 'series', children: [id1, id2], R1, R2 }.
- *    b. Parallel reduction: two components sharing BOTH their terminal nodes →
- *       combine 1/R_equiv = 1/R1 + 1/R2.
- *       Record in the tree: { rule: 'parallel', children: [id1, id2], R1, R2 }.
- *    c. Repeat until a single equivalent resistor remains between battery terminals.
- *       If no series or parallel reduction is applicable and more than one resistor
- *       remains, the circuit is not reducible — return { ok: false, reason: 'not-reducible' }.
- *
- * 3. Compute total current: I_total = V_battery / R_equiv.
- *    Guard: if R_equiv === 0, return { ok: false, reason: 'short-circuit' }.
- *
- * 4. Back-substitute by walking the reduction tree in reverse (leaves = original
- *    components; root = the final equivalent). Assign I and V at each level:
- *
- *    For a series node { children: [A, B], R_A, R_B }:
- *      I_A = I_B = I_parent   (same current everywhere in series)
- *      V_A = I_parent × R_A
- *      V_B = I_parent × R_B
- *
- *    For a parallel node { children: [A, B], R_A, R_B }:
- *      V_A = V_B = V_parent   (same voltage across parallel branches)
- *      I_A = V_parent / R_A
- *      I_B = V_parent / R_B
- *
- *    Leaf nodes are original component IDs; their I and V are the back-substituted
- *    values from this pass. Do not skip back-substitution — without it, per-component
- *    voltages are unavailable and the panel shows 0 V for everything except total.
- *
- * 5. Populate SolveResult.nodes (per-NodeId voltages, ground = 0):
- *    Walk the circuit from battery.negative (= 0 V) through the series chain,
- *    accumulating V_node = V_prev + V_component at each junction node.
- *    For parallel branches, both branch-entry nodes share the same voltage.
- *
- * 6. Compute power: P = V_component × I_component for each component.
- *
- * ─── Edge cases to handle ─────────────────────────────────────────────────
- * • Single resistor + bulb in series with battery:
- *     R_equiv = R_resistor + R_bulb. I = V / R_equiv.
- *     V_resistor = I × R_resistor. V_bulb = I × R_bulb.
- *
- * • Two resistors in series (R1, R2):
- *     R_equiv = R1 + R2. I = V / R_equiv. V_R1 = I*R1, V_R2 = I*R2.
- *
- * • Two resistors in parallel:
- *     R_equiv = (R1*R2)/(R1+R2). I_total = V/R_equiv.
- *     I_R1 = V/R1, I_R2 = V/R2.
- *
- * • Short circuit (R_equiv = 0): only reachable via a closed switch (0 Ω) or a
- *     sandbox wire directly shorting battery terminals. Bulbs are never 0 Ω —
- *     component.resistanceOhm is always > 0. Return { ok: false, reason: 'short-circuit' }.
- *     Do not throw — callers must handle the error result gracefully.
- *
- * • Open circuit passed in (should not happen; topology.ts excludes open components):
- *     Return { ok: false, reason: 'open-circuit' }.
- *
- * • Empty activeIds: return { ok: true, components: {} }. Nothing to solve.
- *
- * • Circuit not reducible to series/parallel (e.g., Wheatstone bridge):
- *     Return { ok: false, reason: 'not-reducible' }. Out of scope per CLAUDE.md.
- *
- * • Multiple batteries: NOT supported. topology.ts guarantees at most one battery
- *     reaches the active set (it returns all-isolated when multiple batteries are
- *     present). If multiple batteries appear in activeIds despite this, return
- *     { ok: false, reason: 'conflicting-sources' } as a defensive guard.
- *
- * • not-reducible result and the adapter mapping:
- *     When `solver/index.ts` receives `{ ok: false, reason: 'not-reducible' }`, it maps
- *     every component in the active set to `{ status: 'floating', reason: 'unsolvable' }`.
- *     'unsolvable' is the UI-visible signal; 'not-reducible' is the internal reason code.
- *     This only occurs in sandbox (all lesson shapes are guaranteed series/parallel reducible).
- *
- * ─── Return shape ─────────────────────────────────────────────────────────
- * Returns the same Record<componentId, ComponentState> shape as topology.ts, but
- * with real voltage/current/power values filled in for active components.
- * On error, returns an OhmsError discriminant so callers can surface a hint.
- *
- * ─── Not in scope ─────────────────────────────────────────────────────────
- * Topology classification. This file receives only pre-classified active components.
+ * This solver only receives components already classified as active by
+ * topology.ts. It never represents open circuits as an OhmsResult reason:
+ * topology owns that as isolated-from-source.
  */
 
+import type { Component } from '../domain/component';
 import type { Circuit } from '../domain/circuit';
 import type { ComponentState } from '../domain/solve-result';
 
+type OhmsFailureReason =
+  | 'short-circuit'
+  | 'conflicting-sources'
+  | 'not-reducible';
+
 export type OhmsResult =
-  | { ok: true;  components: Record<string, ComponentState> }
-  | { ok: false; reason: 'short-circuit' | 'not-reducible' | 'open-circuit' | 'conflicting-sources' };
+  | {
+      ok: true;
+      components: Record<string, ComponentState>;
+      nodes: Record<string, number>;
+    }
+  | { ok: false; reason: OhmsFailureReason };
+
+type ReductionTree =
+  | {
+      kind: 'leaf';
+      componentId: string;
+      resistance: number;
+      from: string;
+      to: string;
+    }
+  | {
+      kind: 'series';
+      resistance: number;
+      from: string;
+      to: string;
+      sharedNode: string;
+      left: ReductionTree;
+      right: ReductionTree;
+    }
+  | {
+      kind: 'parallel';
+      resistance: number;
+      from: string;
+      to: string;
+      left: ReductionTree;
+      right: ReductionTree;
+    };
+
+type Branch = {
+  resistance: number;
+  from: string;
+  to: string;
+  tree: ReductionTree;
+};
+
+const EPSILON = 1e-9;
+
+function activeComponents(circuit: Circuit, activeIds: Set<string>): Component[] {
+  return circuit.components.filter((component) => activeIds.has(component.id));
+}
+
+function solvedResistance(
+  nominalResistance: number,
+  from: string,
+  to: string,
+): number {
+  return from === to ? 0 : nominalResistance;
+}
+
+function terminalPairFor(component: Component): { from: string; to: string } | null {
+  switch (component.kind) {
+    case 'battery':
+      return null;
+    case 'resistor':
+    case 'bulb':
+    case 'switch':
+      return { from: component.terminals.a, to: component.terminals.b };
+  }
+}
+
+function isBypassedComponent(component: Component): boolean {
+  const terminals = terminalPairFor(component);
+  return terminals !== null && terminals.from === terminals.to;
+}
+
+function zeroState(): ComponentState {
+  return {
+    status: 'active',
+    voltage: 0,
+    current: 0,
+    power: 0,
+  };
+}
+
+function branchFor(component: Component): Branch | null {
+  switch (component.kind) {
+    case 'battery':
+      return null;
+
+    case 'resistor': {
+      const resistance = solvedResistance(
+        component.resistanceOhm,
+        component.terminals.a,
+        component.terminals.b,
+      );
+
+      return {
+        resistance,
+        from: component.terminals.a,
+        to: component.terminals.b,
+        tree: {
+          kind: 'leaf',
+          componentId: component.id,
+          resistance,
+          from: component.terminals.a,
+          to: component.terminals.b,
+        },
+      };
+    }
+
+    case 'bulb': {
+      const resistance = solvedResistance(
+        component.resistanceOhm,
+        component.terminals.a,
+        component.terminals.b,
+      );
+
+      return {
+        resistance,
+        from: component.terminals.a,
+        to: component.terminals.b,
+        tree: {
+          kind: 'leaf',
+          componentId: component.id,
+          resistance,
+          from: component.terminals.a,
+          to: component.terminals.b,
+        },
+      };
+    }
+
+    case 'switch':
+      if (!component.closed) return null;
+      return {
+        resistance: 0,
+        from: component.terminals.a,
+        to: component.terminals.b,
+        tree: {
+          kind: 'leaf',
+          componentId: component.id,
+          resistance: 0,
+          from: component.terminals.a,
+          to: component.terminals.b,
+        },
+      };
+  }
+}
+
+function sameEndpoints(first: Branch, second: Branch): boolean {
+  return (
+    (first.from === second.from && first.to === second.to) ||
+    (first.from === second.to && first.to === second.from)
+  );
+}
+
+function branchConnects(branch: Branch, first: string, second: string): boolean {
+  return (
+    (branch.from === first && branch.to === second) ||
+    (branch.from === second && branch.to === first)
+  );
+}
+
+function treeConnects(tree: ReductionTree, first: string, second: string): boolean {
+  return (
+    (tree.from === first && tree.to === second) ||
+    (tree.from === second && tree.to === first)
+  );
+}
+
+function otherEndpoint(branch: Branch, nodeId: string): string {
+  return branch.from === nodeId ? branch.to : branch.from;
+}
+
+function parallelResistance(first: number, second: number): number {
+  if (Math.abs(first) <= EPSILON || Math.abs(second) <= EPSILON) return 0;
+  return 1 / (1 / first + 1 / second);
+}
+
+function replaceTwoBranches(
+  branches: Branch[],
+  firstIndex: number,
+  secondIndex: number,
+  replacement: Branch,
+): Branch[] {
+  return branches
+    .filter((_, index) => index !== firstIndex && index !== secondIndex)
+    .concat(replacement);
+}
+
+function reduceParallelPair(branches: Branch[]): Branch[] | null {
+  for (let firstIndex = 0; firstIndex < branches.length; firstIndex += 1) {
+    for (
+      let secondIndex = firstIndex + 1;
+      secondIndex < branches.length;
+      secondIndex += 1
+    ) {
+      const first = branches[firstIndex];
+      const second = branches[secondIndex];
+
+      if (!sameEndpoints(first, second)) continue;
+
+      const replacement: Branch = {
+        resistance: parallelResistance(first.resistance, second.resistance),
+        from: first.from,
+        to: first.to,
+        tree: {
+          kind: 'parallel',
+          resistance: parallelResistance(first.resistance, second.resistance),
+          from: first.from,
+          to: first.to,
+          left: first.tree,
+          right: second.tree,
+        },
+      };
+
+      return replaceTwoBranches(branches, firstIndex, secondIndex, replacement);
+    }
+  }
+
+  return null;
+}
+
+function buildIncidence(branches: Branch[]): Map<string, Branch[]> {
+  const incidence = new Map<string, Branch[]>();
+
+  for (const branch of branches) {
+    const fromBranches = incidence.get(branch.from) ?? [];
+    fromBranches.push(branch);
+    incidence.set(branch.from, fromBranches);
+
+    if (branch.to !== branch.from) {
+      const toBranches = incidence.get(branch.to) ?? [];
+      toBranches.push(branch);
+      incidence.set(branch.to, toBranches);
+    }
+  }
+
+  return incidence;
+}
+
+function reduceSeriesPair(
+  branches: Branch[],
+  sourceNode: string,
+  groundNode: string,
+): Branch[] | null {
+  const incidence = buildIncidence(branches);
+
+  for (const [nodeId, incidentBranches] of incidence) {
+    if (nodeId === sourceNode || nodeId === groundNode) continue;
+    if (incidentBranches.length !== 2) continue;
+
+    const [first, second] = incidentBranches;
+    if (first === second) continue;
+
+    const firstIndex = branches.indexOf(first);
+    const secondIndex = branches.indexOf(second);
+    const firstOuter = otherEndpoint(first, nodeId);
+    const secondOuter = otherEndpoint(second, nodeId);
+
+    const replacement: Branch = {
+      resistance: first.resistance + second.resistance,
+      from: firstOuter,
+      to: secondOuter,
+      tree: {
+        kind: 'series',
+        resistance: first.resistance + second.resistance,
+        from: firstOuter,
+        to: secondOuter,
+        sharedNode: nodeId,
+        left: first.tree,
+        right: second.tree,
+      },
+    };
+
+    return replaceTwoBranches(branches, firstIndex, secondIndex, replacement);
+  }
+
+  return null;
+}
+
+function reduceNetwork(
+  branches: Branch[],
+  sourceNode: string,
+  groundNode: string,
+): Branch | null {
+  let remaining = branches;
+
+  while (remaining.length > 1) {
+    const parallelReduced = reduceParallelPair(remaining);
+    if (parallelReduced) {
+      remaining = parallelReduced;
+      continue;
+    }
+
+    const seriesReduced = reduceSeriesPair(remaining, sourceNode, groundNode);
+    if (seriesReduced) {
+      remaining = seriesReduced;
+      continue;
+    }
+
+    return null;
+  }
+
+  return remaining[0] ?? null;
+}
+
+function orderedSeriesChildren(
+  tree: Extract<ReductionTree, { kind: 'series' }>,
+  from: string,
+  to: string,
+): { first: ReductionTree; second: ReductionTree } | null {
+  if (
+    treeConnects(tree.left, from, tree.sharedNode) &&
+    treeConnects(tree.right, tree.sharedNode, to)
+  ) {
+    return { first: tree.left, second: tree.right };
+  }
+
+  if (
+    treeConnects(tree.right, from, tree.sharedNode) &&
+    treeConnects(tree.left, tree.sharedNode, to)
+  ) {
+    return { first: tree.right, second: tree.left };
+  }
+
+  return null;
+}
+
+function childCurrentForParallel(
+  child: ReductionTree,
+  sibling: ReductionTree,
+  parentCurrent: number,
+  voltageDifference: number,
+): number {
+  const childIsShort = Math.abs(child.resistance) <= EPSILON;
+  const siblingIsShort = Math.abs(sibling.resistance) <= EPSILON;
+
+  if (childIsShort && siblingIsShort) return parentCurrent / 2;
+  if (childIsShort) return parentCurrent;
+  if (siblingIsShort) return 0;
+  return voltageDifference / child.resistance;
+}
+
+function assignTreeValues(
+  tree: ReductionTree,
+  from: string,
+  to: string,
+  fromVoltage: number,
+  toVoltage: number,
+  current: number,
+  componentStates: Record<string, ComponentState>,
+  nodeVoltages: Record<string, number>,
+): boolean {
+  nodeVoltages[from] = fromVoltage;
+  nodeVoltages[to] = toVoltage;
+
+  switch (tree.kind) {
+    case 'leaf': {
+      componentStates[tree.componentId] = {
+        status: 'active',
+        voltage: Math.abs(fromVoltage - toVoltage),
+        current: Math.abs(current),
+        power: Math.abs(fromVoltage - toVoltage) * Math.abs(current),
+      };
+      return true;
+    }
+
+    case 'series': {
+      const orderedChildren = orderedSeriesChildren(tree, from, to);
+      if (!orderedChildren) return false;
+
+      const { first, second } = orderedChildren;
+      const voltageDifference = fromVoltage - toVoltage;
+      const firstRatio =
+        Math.abs(tree.resistance) <= EPSILON
+          ? 0
+          : first.resistance / tree.resistance;
+      const sharedVoltage = fromVoltage - voltageDifference * firstRatio;
+
+      nodeVoltages[tree.sharedNode] = sharedVoltage;
+
+      return (
+        assignTreeValues(
+          first,
+          from,
+          tree.sharedNode,
+          fromVoltage,
+          sharedVoltage,
+          current,
+          componentStates,
+          nodeVoltages,
+        ) &&
+        assignTreeValues(
+          second,
+          tree.sharedNode,
+          to,
+          sharedVoltage,
+          toVoltage,
+          current,
+          componentStates,
+          nodeVoltages,
+        )
+      );
+    }
+
+    case 'parallel': {
+      if (
+        !treeConnects(tree.left, from, to) ||
+        !treeConnects(tree.right, from, to)
+      ) {
+        return false;
+      }
+
+      const voltageDifference = fromVoltage - toVoltage;
+      const leftCurrent = childCurrentForParallel(
+        tree.left,
+        tree.right,
+        current,
+        voltageDifference,
+      );
+      const rightCurrent = childCurrentForParallel(
+        tree.right,
+        tree.left,
+        current,
+        voltageDifference,
+      );
+
+      return (
+        assignTreeValues(
+          tree.left,
+          from,
+          to,
+          fromVoltage,
+          toVoltage,
+          leftCurrent,
+          componentStates,
+          nodeVoltages,
+        ) &&
+        assignTreeValues(
+          tree.right,
+          from,
+          to,
+          fromVoltage,
+          toVoltage,
+          rightCurrent,
+          componentStates,
+          nodeVoltages,
+        )
+      );
+    }
+  }
+}
 
 /**
- * Solves V/I/P for all active components via series/parallel reduction.
- *
- * @param circuit         Full circuit (all components, including floating ones).
- * @param activeIds       Set of component IDs that topology.ts classified as active.
- * @returns               OhmsResult — ok:true with real values, or ok:false with reason.
+ * Solves V/I/P for active components via series/parallel reduction.
  */
 export function solveOhms(
   circuit: Circuit,
   activeIds: Set<string>,
 ): OhmsResult {
-  // Codex implements this body.
-  void circuit;
-  void activeIds;
-  return { ok: false, reason: 'not-reducible' };
+  if (activeIds.size === 0) {
+    return { ok: true, components: {}, nodes: {} };
+  }
+
+  const active = activeComponents(circuit, activeIds);
+  const batteries = active.filter((component) => component.kind === 'battery');
+
+  if (batteries.length > 1) {
+    return { ok: false, reason: 'conflicting-sources' };
+  }
+
+  if (batteries.length !== 1) {
+    return { ok: false, reason: 'not-reducible' };
+  }
+
+  const battery = batteries[0];
+  const sourceNode = battery.terminals.positive;
+  const groundNode = battery.terminals.negative;
+
+  if (sourceNode === groundNode) {
+    return { ok: false, reason: 'short-circuit' };
+  }
+
+  const components: Record<string, ComponentState> = Object.fromEntries(
+    active
+      .filter(isBypassedComponent)
+      .map((component) => [component.id, zeroState()]),
+  );
+
+  const branches = active
+    .filter((component) => !isBypassedComponent(component))
+    .map((component) => branchFor(component))
+    .filter((branch): branch is Branch => branch !== null);
+
+  const reduced = reduceNetwork(branches, sourceNode, groundNode);
+  if (!reduced) {
+    return { ok: false, reason: 'not-reducible' };
+  }
+
+  if (!branchConnects(reduced, sourceNode, groundNode)) {
+    return { ok: false, reason: 'not-reducible' };
+  }
+
+  if (Math.abs(reduced.resistance) <= EPSILON) {
+    return { ok: false, reason: 'short-circuit' };
+  }
+
+  const totalCurrent = battery.voltageV / reduced.resistance;
+  components[battery.id] = {
+    status: 'active',
+    voltage: Math.abs(battery.voltageV),
+    current: Math.abs(totalCurrent),
+    power: Math.abs(battery.voltageV) * Math.abs(totalCurrent),
+  };
+
+  const nodes: Record<string, number> = {
+    [groundNode]: 0,
+    [sourceNode]: battery.voltageV,
+  };
+
+  const assigned = assignTreeValues(
+    reduced.tree,
+    sourceNode,
+    groundNode,
+    battery.voltageV,
+    0,
+    totalCurrent,
+    components,
+    nodes,
+  );
+
+  if (!assigned) {
+    return { ok: false, reason: 'not-reducible' };
+  }
+
+  for (const componentId of activeIds) {
+    if (!components[componentId]) {
+      return { ok: false, reason: 'not-reducible' };
+    }
+  }
+
+  return { ok: true, components, nodes };
 }
