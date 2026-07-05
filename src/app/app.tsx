@@ -18,19 +18,20 @@ import { Palette }       from '../palette/palette';
 import { ValueReadout }  from '../panel/value-readout';
 import { useAppStore }   from '../state/store';
 import { lesson01 }      from '../lessons/definitions/lesson-01-complete-loop';
-import type { Lesson }   from '../lessons/types';
-import type { ComponentKind } from '../domain/component';
+import { lesson02 }      from '../lessons/definitions/lesson-02-resistor';
+import type { Lesson, PaletteEntry } from '../lessons/types';
 
 // Lesson registry — Phase 3 will grow this list
 const LESSON_MAP: Record<string, Lesson> = {
   [lesson01.id]: lesson01,
+  [lesson02.id]: lesson02,
 };
 
 export function App() {
   const currentLessonId = useAppStore((s) => s.currentLessonId);
 
-  const paletteKinds: ComponentKind[] =
-    LESSON_MAP[currentLessonId]?.availablePaletteKinds ?? [];
+  const paletteEntries: PaletteEntry[] =
+    LESSON_MAP[currentLessonId]?.palette ?? [];
 
   return (
     <div className="flex flex-col h-screen bg-slate-100 font-sans">
@@ -44,7 +45,7 @@ export function App() {
         {/* Canvas */}
         <div className="flex flex-col flex-1 min-w-0">
           <CircuitCanvas />
-          <Palette availableKinds={paletteKinds} />
+          <Palette entries={paletteEntries} />
         </div>
 
         {/* Value readout sidebar */}

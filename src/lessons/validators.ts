@@ -73,6 +73,22 @@ export const expectCurrentThrough = (
   };
 
 /**
+ * True when the named component is active AND its current is strictly below
+ * `thresholdA` (amperes). Used for "bring the current down to safe" goals
+ * (Lesson 2 — current below 0.3 A after the resistor is inserted).
+ */
+export const expectCurrentBelow = (
+  componentId: string,
+  thresholdA: number,
+): ValidatorPredicate =>
+  (solveResult: SolveResult | null) => {
+    if (!solveResult) return false;
+    const state = solveResult.components[componentId];
+    if (state?.status !== 'active') return false;
+    return state.current < thresholdA;
+  };
+
+/**
  * True when every component in the circuit is active.
  * Useful for "close the loop" goals (Lesson 1).
  */

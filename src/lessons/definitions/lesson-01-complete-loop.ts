@@ -120,7 +120,7 @@ export const lesson01: Lesson = {
     nodes: initialNodes,
     edges: initialEdges,
   },
-  availablePaletteKinds: [], // no palette in Lesson 1 — drag-to-wire only
+  palette: [], // no palette in Lesson 1 — drag-to-wire only
   hint,
   advancement: expectCircuitClosed(),
 };

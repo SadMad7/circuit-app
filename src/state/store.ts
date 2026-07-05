@@ -22,7 +22,7 @@ import {
 } from '@xyflow/react';
 import type { AppNode } from '../canvas/nodes/types';
 import type { SolveResult } from '../domain/solve-result';
-import type { Lesson } from '../lessons/types';
+import type { Lesson, PaletteEntry } from '../lessons/types';
 import { solve } from '../solver/index';
 import { convertToCircuit } from '../canvas/converter';
 import { loadProgress, saveProgress } from '../persistence/storage';
@@ -31,8 +31,9 @@ import { loadProgress, saveProgress } from '../persistence/storage';
 // Lesson registry — imported lazily to avoid circular deps
 // ---------------------------------------------------------------------------
 import { lesson01 } from '../lessons/definitions/lesson-01-complete-loop';
+import { lesson02 } from '../lessons/definitions/lesson-02-resistor';
 
-const LESSONS: Lesson[] = [lesson01];
+const LESSONS: Lesson[] = [lesson01, lesson02];
 
 // ---------------------------------------------------------------------------
 // State shape
@@ -58,6 +59,7 @@ interface AppState {
   loadLesson: (lessonId: string) => void;
   completeCurrentLesson: () => void;
   triggerSolve: () => void;
+  insertComponentOnEdge: (edgeId: string, entry: PaletteEntry) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -116,6 +118,81 @@ export const useAppStore = create<AppState>((set, get) => {
       set((state) => ({
         solveResult: runSolve(state.nodes, state.edges),
       }));
+    },
+
+    /**
+     * Series insertion — split an existing wire around a new component.
+     *
+     * The wire A→B becomes A→component.a and component.b→B; in the domain model
+     * that yields two nodes with the component between them: series. The action
+     * is deliberately dumb — the lesson supplies the component's value via the
+     * palette entry; nothing here is lesson-aware. One discrete solve on drop.
+     */
+    insertComponentOnEdge: (edgeId: string, entry: PaletteEntry) => {
+      set((state) => {
+        const edge = state.edges.find((e) => e.id === edgeId);
+        // Only two-terminal palette components insert in series; batteries never
+        // appear in a palette, so resistor is the only droppable kind today.
+        if (!edge || entry.kind !== 'resistor') return {};
+
+        // Deterministic next-index id: lesson 2's first insert is resistor-1;
+        // lesson 4 reuses this action in a circuit that already has one.
+        const nextIndex =
+          state.nodes.reduce((max, n) => {
+            const m = /^resistor-(\d+)$/.exec(n.id);
+            return m ? Math.max(max, Number(m[1])) : max;
+          }, 0) + 1;
+        const id = `resistor-${nextIndex}`;
+
+        // Cosmetic placement: midpoint of the two endpoint nodes.
+        const sourceNode = state.nodes.find((n) => n.id === edge.source);
+        const targetNode = state.nodes.find((n) => n.id === edge.target);
+        const position = {
+          x: ((sourceNode?.position.x ?? 0) + (targetNode?.position.x ?? 0)) / 2,
+          y: ((sourceNode?.position.y ?? 0) + (targetNode?.position.y ?? 0)) / 2 - 40,
+        };
+
+        const newNode: AppNode = {
+          id,
+          type: 'resistor',
+          position,
+          data: {
+            kind: 'resistor',
+            componentId: id,
+            label: entry.label,
+            resistanceOhm: entry.resistanceOhm,
+          },
+        };
+
+        // Replace A→B with A→resistor.a and resistor.b→B, preserving the
+        // original wire's orientation.
+        const newEdges: Edge[] = [
+          ...state.edges.filter((e) => e.id !== edgeId),
+          {
+            id: `${edgeId}-split-a`,
+            source: edge.source,
+            sourceHandle: edge.sourceHandle,
+            target: id,
+            targetHandle: `${id}__a`,
+            type: 'wire',
+          },
+          {
+            id: `${edgeId}-split-b`,
+            source: id,
+            sourceHandle: `${id}__b`,
+            target: edge.target,
+            targetHandle: edge.targetHandle,
+            type: 'wire',
+          },
+        ];
+
+        const newNodes = [...state.nodes, newNode];
+        return {
+          nodes: newNodes,
+          edges: newEdges,
+          solveResult: runSolve(newNodes, newEdges),
+        };
+      });
     },
 
     loadLesson: (lessonId: string) => {
