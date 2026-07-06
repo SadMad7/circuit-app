@@ -1,21 +1,28 @@
 import type { Edge } from '@xyflow/react';
 import type { ComponentKind } from '../domain/component';
 import type { SolveResult } from '../domain/solve-result';
+import type { Circuit } from '../domain/circuit';
 import type { AppNode } from '../canvas/nodes/types';
 
 /**
  * A predicate that decides whether the lesson goal has been met.
- * Receives the current SolveResult (null if canvas is empty or solve hasn't run yet).
- * Returns true when the goal is satisfied → auto-advance triggers.
+ * Receives the current SolveResult (null if canvas is empty or solve hasn't run
+ * yet) and the converted Circuit (for validators that read wiring topology —
+ * shared terminal NodeIds — rather than solved values, e.g. lesson 5's
+ * series/parallel check). Returns true when the goal is satisfied →
+ * auto-advance triggers.
  *
  * Lessons compose these from the factory functions in validators.ts.
  * Never hand-roll logic directly in a lesson definition.
  */
-export type ValidatorPredicate = (solveResult: SolveResult | null) => boolean;
+export type ValidatorPredicate = (
+  solveResult: SolveResult | null,
+  circuit: Circuit,
+) => boolean;
 
 /**
- * A function that returns the current hint string given the live SolveResult
- * and the current React Flow edges.
+ * A function that returns the current hint string given the live SolveResult,
+ * the current React Flow edges, and the converted Circuit.
  *
  * `edges` is included because SolveResult alone cannot distinguish between
  * "terminal A is dangling because it has no wire" and "terminal A is dangling
@@ -23,10 +30,17 @@ export type ValidatorPredicate = (solveResult: SolveResult | null) => boolean;
  * floating/dangling state. Lessons that need to detect miswiring (e.g. Lesson 1's
  * battery+ → LED cathode wrong-path hint) inspect edges directly.
  *
+ * `circuit` is included for hints keyed on wiring topology (lesson 5's
+ * series-mistake correction reads shared NodeIds, not solved values).
+ *
  * Hint copy should reference component UI labels ("the LED", "the resistor"),
  * not internal component IDs.
  */
-export type HintScript = (solveResult: SolveResult | null, edges: Edge[]) => string;
+export type HintScript = (
+  solveResult: SolveResult | null,
+  edges: Edge[],
+  circuit: Circuit,
+) => string;
 
 /**
  * One draggable entry in the palette tray.
@@ -59,6 +73,15 @@ export interface Lesson {
    * Empty array = no palette (Lesson 1 — drag-to-wire only).
    */
   palette: PaletteEntry[];
+  /**
+   * What a palette drop does in this lesson.
+   *   'insert' (default) — drop onto a wire splits it and interposes the
+   *                        component in series (lessons 2 and 4).
+   *   'place'            — drop creates a free, unwired component at the
+   *                        cursor; the user wires it by hand (lesson 5's
+   *                        branch-wiring gesture). No auto-connect.
+   */
+  paletteDropMode?: 'insert' | 'place';
   /**
    * Returns the hint string appropriate for the current circuit state.
    * Driven by ComponentState — no bespoke checks, only reads status/reason.

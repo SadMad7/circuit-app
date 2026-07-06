@@ -15,10 +15,12 @@
 import { useCallback } from 'react';
 import {
   ReactFlow,
+  ReactFlowProvider,
   Background,
   BackgroundVariant,
   Controls,
   ConnectionMode,
+  useReactFlow,
   type NodeTypes,
   type EdgeTypes,
 } from '@xyflow/react';
@@ -42,17 +44,20 @@ const edgeTypes: EdgeTypes = {
   wire: WireEdge as React.ComponentType<any>,
 };
 
-export function CircuitCanvas() {
+function CircuitCanvasInner() {
   const nodes         = useAppStore((s) => s.nodes);
   const edges         = useAppStore((s) => s.edges);
   const onNodesChange = useAppStore((s) => s.onNodesChange);
   const onEdgesChange = useAppStore((s) => s.onEdgesChange);
   const onConnect     = useAppStore((s) => s.onConnect);
   const insertComponentOnEdge = useAppStore((s) => s.insertComponentOnEdge);
+  const addComponent    = useAppStore((s) => s.addComponent);
+  const paletteDropMode = useAppStore((s) => s.paletteDropMode);
+  const { screenToFlowPosition } = useReactFlow();
 
   const handleConnect = useCallback(onConnect, [onConnect]);
 
-  // Palette drop-to-insert. dragover must preventDefault or the browser
+  // Palette drop handling. dragover must preventDefault or the browser
   // refuses the drop; the payload itself is only readable in the drop event,
   // so dragover checks the type list.
   const handleDragOver = useCallback((event: React.DragEvent) => {
@@ -62,15 +67,29 @@ export function CircuitCanvas() {
     }
   }, []);
 
-  // React Flow renders each edge (including its wide invisible interaction
-  // path) inside a .react-flow__edge group carrying data-id, so the element
-  // under the drop cursor resolves the target wire directly. Off-wire drops
-  // are a no-op — the chip snaps back, nothing is inserted.
+  // Drop behavior is lesson-scoped (store.paletteDropMode):
+  //   insert — the drop must land on a wire; the wire splits and the
+  //            component is interposed in series (lessons 2 and 4). React
+  //            Flow renders each edge (including its wide invisible
+  //            interaction path) inside a .react-flow__edge group carrying
+  //            data-id, so the element under the cursor resolves the target
+  //            wire. Off-wire drops are a no-op.
+  //   place  — the component is created free and unwired at the drop
+  //            position; the user draws its wires by hand (lesson 5).
   const handleDrop = useCallback(
     (event: React.DragEvent) => {
       const raw = event.dataTransfer.getData(PALETTE_DND_MIME);
       if (!raw) return;
       event.preventDefault();
+
+      if (paletteDropMode === 'place') {
+        const position = screenToFlowPosition({
+          x: event.clientX,
+          y: event.clientY,
+        });
+        addComponent(JSON.parse(raw), position);
+        return;
+      }
 
       const edgeEl = (event.target as Element).closest?.('.react-flow__edge');
       const edgeId = edgeEl?.getAttribute('data-id');
@@ -78,7 +97,7 @@ export function CircuitCanvas() {
 
       insertComponentOnEdge(edgeId, JSON.parse(raw));
     },
-    [insertComponentOnEdge],
+    [paletteDropMode, screenToFlowPosition, addComponent, insertComponentOnEdge],
   );
 
   return (
@@ -115,5 +134,14 @@ export function CircuitCanvas() {
         />
       </ReactFlow>
     </div>
+  );
+}
+
+/** React Flow host — provider wrapper so the inner canvas can use flow APIs. */
+export function CircuitCanvas() {
+  return (
+    <ReactFlowProvider>
+      <CircuitCanvasInner />
+    </ReactFlowProvider>
   );
 }

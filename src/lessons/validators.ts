@@ -8,6 +8,7 @@
  */
 
 import type { SolveResult } from '../domain/solve-result';
+import type { Circuit } from '../domain/circuit';
 import type { ValidatorPredicate } from './types';
 
 // ---------------------------------------------------------------------------
@@ -101,13 +102,69 @@ export const expectCircuitClosed = (): ValidatorPredicate =>
   };
 
 // ---------------------------------------------------------------------------
+// Topology-reading factories (lesson 5)
+//
+// These read the converted Circuit's terminal NodeIds — wiring topology, not
+// solved values. They compute no physics; their only job is lesson flow
+// (which hint to show, whether to advance), which is why they live here with
+// the validators and not in the solver. Nothing in the solve path calls them.
+// ---------------------------------------------------------------------------
+
+/**
+ * Classifies how two resistors relate in the wired circuit.
+ *
+ *   'parallel' — they span the same two distinct nodes
+ *   'series'   — they share exactly one node (directly adjacent in a chain)
+ *   'none'     — either is missing, self-shorted, or they share no node
+ *
+ * Built for lesson 5's two-resistor case only — no chains through other
+ * components, no mixed arrangements.
+ */
+export function classifyResistorPair(
+  circuit: Circuit,
+  idA: string,
+  idB: string,
+): 'series' | 'parallel' | 'none' {
+  const a = circuit.components.find((c) => c.id === idA);
+  const b = circuit.components.find((c) => c.id === idB);
+  if (!a || !b) return 'none';
+
+  const aNodes = Object.values(a.terminals);
+  const bNodes = Object.values(b.terminals);
+
+  // Self-shorted components (both terminals on one node) are never a valid
+  // series or parallel arrangement — don't let them masquerade as parallel.
+  const aDistinct = new Set(aNodes).size === 2;
+  const bDistinct = new Set(bNodes).size === 2;
+  if (!aDistinct || !bDistinct) return 'none';
+
+  const aSet = new Set(aNodes);
+  const shared = bNodes.filter((n) => aSet.has(n)).length;
+
+  if (shared === 2) return 'parallel';
+  if (shared === 1) return 'series';
+  return 'none';
+}
+
+/**
+ * True when both components are wired in parallel — spanning the same two
+ * distinct nodes. Lesson 5's advancement check (composed with an active
+ * check so an unwired-but-parallel-looking arrangement can't advance).
+ */
+export const expectParallel = (idA: string, idB: string): ValidatorPredicate =>
+  (solveResult, circuit) => {
+    void solveResult; // topology-only — reads wiring, not solved values
+    return classifyResistorPair(circuit, idA, idB) === 'parallel';
+  };
+
+// ---------------------------------------------------------------------------
 // Combinators
 // ---------------------------------------------------------------------------
 
 /** True when ALL predicates pass. */
 export const allOf = (...predicates: ValidatorPredicate[]): ValidatorPredicate =>
-  (solveResult) => predicates.every((p) => p(solveResult));
+  (solveResult, circuit) => predicates.every((p) => p(solveResult, circuit));
 
 /** True when ANY predicate passes. */
 export const anyOf = (...predicates: ValidatorPredicate[]): ValidatorPredicate =>
-  (solveResult) => predicates.some((p) => p(solveResult));
+  (solveResult, circuit) => predicates.some((p) => p(solveResult, circuit));
