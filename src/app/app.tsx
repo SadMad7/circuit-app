@@ -21,6 +21,7 @@ import { lesson01 }      from '../lessons/definitions/lesson-01-complete-loop';
 import { lesson02 }      from '../lessons/definitions/lesson-02-resistor';
 import { lesson03 }      from '../lessons/definitions/lesson-03-ohms-law';
 import { lesson04 }      from '../lessons/definitions/lesson-04-series';
+import { lesson05 }      from '../lessons/definitions/lesson-05-parallel';
 import type { Lesson, PaletteEntry } from '../lessons/types';
 
 // Lesson registry — Phase 3 will grow this list
@@ -29,6 +30,7 @@ const LESSON_MAP: Record<string, Lesson> = {
   [lesson02.id]: lesson02,
   [lesson03.id]: lesson03,
   [lesson04.id]: lesson04,
+  [lesson05.id]: lesson05,
 };
 
 export function App() {

@@ -13,6 +13,9 @@ import type { ComponentKind } from '../../domain/component';
  *   slider        — resistor only; present ONLY when the lesson enables a
  *                   resistance slider (lesson 3). Not an intrinsic resistor
  *                   property — resistors without it render no slider.
+ *   branchTarget  — present ONLY when the lesson highlights this component's
+ *                   terminals as branch-wiring targets (lesson 5). Guidance
+ *                   styling, no behavior change.
  */
 export type AppNodeData = {
   kind: ComponentKind;
@@ -22,6 +25,7 @@ export type AppNodeData = {
   resistanceOhm?: number;
   closed?: boolean;
   slider?: { min: number; max: number };
+  branchTarget?: boolean;
 };
 
 /** The React Flow node type used throughout the app. */

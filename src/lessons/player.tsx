@@ -12,14 +12,16 @@
  * All decisions go through the validator factory functions in validators.ts.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppStore } from '../state/store';
+import { convertToCircuit } from '../canvas/converter';
 
 // Lesson registry — Phase 3 adds the rest
 import { lesson01 } from './definitions/lesson-01-complete-loop';
 import { lesson02 } from './definitions/lesson-02-resistor';
 import { lesson03 } from './definitions/lesson-03-ohms-law';
 import { lesson04 } from './definitions/lesson-04-series';
+import { lesson05 } from './definitions/lesson-05-parallel';
 import type { Lesson } from './types';
 import {
   INITIAL_SLIDER_ZONES,
@@ -32,6 +34,7 @@ const LESSONS_MAP: Record<string, Lesson> = {
   [lesson02.id]: lesson02,
   [lesson03.id]: lesson03,
   [lesson04.id]: lesson04,
+  [lesson05.id]: lesson05,
 };
 
 // Delay between goal-met and actual advance (ms)
@@ -64,6 +67,13 @@ export function LessonPlayer() {
       loadLesson(currentLessonId);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Converted Circuit for topology-reading validators and hints (lesson 5's
+  // series/parallel check reads shared terminal NodeIds, not solved values).
+  const circuit = useMemo(
+    () => convertToCircuit(nodes, edges),
+    [nodes, edges],
+  );
 
   // Reset interaction history whenever the lesson changes.
   useEffect(() => {
@@ -99,7 +109,7 @@ export function LessonPlayer() {
       }
       met = sliderZoneGoalMet(sliderZones.current);
     } else {
-      met = lesson.advancement ? lesson.advancement(solveResult) : false;
+      met = lesson.advancement ? lesson.advancement(solveResult, circuit) : false;
     }
 
     if (met && !goalMet) {
@@ -117,7 +127,7 @@ export function LessonPlayer() {
       }
       setGoalMet(false);
     }
-  }, [solveResult, nodes, lesson, goalMet, completeCurrentLesson]);
+  }, [solveResult, nodes, circuit, lesson, goalMet, completeCurrentLesson]);
 
   // Clear any pending advance timer on unmount only.
   useEffect(() => {
@@ -135,7 +145,7 @@ export function LessonPlayer() {
   }
 
   const isCompleted = completedLessons[lesson.id];
-  const hint = lesson.hint(solveResult, edges);
+  const hint = lesson.hint(solveResult, edges, circuit);
 
   return (
     <div className="flex flex-col justify-center gap-1 h-full px-4">

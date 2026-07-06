@@ -28,6 +28,26 @@ export function ResistorNode({ id, data }: NodeProps<AppNode>) {
     setDragOhm(null);
   };
 
+  // Branch-target affordance (lesson 5): the terminals glow as valid targets
+  // for the branch-wiring gesture. Styling only — connection behavior is
+  // unchanged. The pulsing ring is drawn behind each handle so the handle
+  // itself stays hittable.
+  const isBranchTarget = data.branchTarget === true;
+  const handleStyle = isBranchTarget
+    ? {
+        background: '#10b981',
+        border: '2px solid white',
+        width: 16,
+        height: 16,
+        boxShadow: '0 0 0 4px rgba(16, 185, 129, 0.35)',
+      }
+    : {
+        background: '#a78bfa',
+        border: '2px solid white',
+        width: 12,
+        height: 12,
+      };
+
   return (
     <div className="flex flex-col items-center gap-1.5">
       <div
@@ -56,12 +76,20 @@ export function ResistorNode({ id, data }: NodeProps<AppNode>) {
           resistor
         </span>
 
+        {/* Branch-target pulse rings — decorative, behind the handles */}
+        {isBranchTarget && (
+          <>
+            <span className="absolute -left-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-emerald-400 opacity-60 animate-ping pointer-events-none" />
+            <span className="absolute -right-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-emerald-400 opacity-60 animate-ping pointer-events-none" />
+          </>
+        )}
+
         {/* Terminal a — left */}
         <Handle
           id={`${id}__a`}
           type="source"
           position={Position.Left}
-          style={{ background: '#a78bfa', border: '2px solid white', width: 12, height: 12 }}
+          style={handleStyle}
         />
 
         {/* Terminal b — right */}
@@ -69,9 +97,16 @@ export function ResistorNode({ id, data }: NodeProps<AppNode>) {
           id={`${id}__b`}
           type="source"
           position={Position.Right}
-          style={{ background: '#a78bfa', border: '2px solid white', width: 12, height: 12 }}
+          style={handleStyle}
         />
       </div>
+
+      {/* Branch-target caption — tells the user what the glow means */}
+      {isBranchTarget && (
+        <span className="text-[9px] font-semibold text-emerald-600 tracking-wide">
+          connect here
+        </span>
+      )}
 
       {/* Resistance slider — present only when the lesson enables it (lesson 3).
           nodrag stops React Flow from treating the drag as a node move. */}

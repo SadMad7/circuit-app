@@ -34,8 +34,23 @@ import { lesson01 } from '../lessons/definitions/lesson-01-complete-loop';
 import { lesson02 } from '../lessons/definitions/lesson-02-resistor';
 import { lesson03 } from '../lessons/definitions/lesson-03-ohms-law';
 import { lesson04 } from '../lessons/definitions/lesson-04-series';
+import { lesson05 } from '../lessons/definitions/lesson-05-parallel';
 
-const LESSONS: Lesson[] = [lesson01, lesson02, lesson03, lesson04];
+const LESSONS: Lesson[] = [lesson01, lesson02, lesson03, lesson04, lesson05];
+
+/**
+ * Deterministic next-index resistor id: lesson 2's first insert is
+ * resistor-1; lesson 4 (and lesson 5's placed branch resistor) get the next
+ * free index in circuits that already have one.
+ */
+function nextResistorId(nodes: AppNode[]): string {
+  const nextIndex =
+    nodes.reduce((max, n) => {
+      const m = /^resistor-(\d+)$/.exec(n.id);
+      return m ? Math.max(max, Number(m[1])) : max;
+    }, 0) + 1;
+  return `resistor-${nextIndex}`;
+}
 
 // ---------------------------------------------------------------------------
 // State shape
@@ -57,11 +72,15 @@ interface AppState {
   completedLessons: Record<string, boolean>;
   sandboxUnlocked: boolean;
 
+  /** What a palette drop does in the current lesson (set by loadLesson). */
+  paletteDropMode: 'insert' | 'place';
+
   // Actions
   loadLesson: (lessonId: string) => void;
   completeCurrentLesson: () => void;
   triggerSolve: () => void;
   insertComponentOnEdge: (edgeId: string, entry: PaletteEntry) => void;
+  addComponent: (entry: PaletteEntry, position: { x: number; y: number }) => void;
   setResistance: (componentId: string, ohm: number) => void;
 }
 
@@ -87,6 +106,7 @@ export const useAppStore = create<AppState>((set, get) => {
     currentLessonId: persisted.currentLessonId ?? 'lesson-01-complete-loop',
     completedLessons: persisted.completedLessons ?? {},
     sandboxUnlocked: persisted.sandboxUnlocked ?? false,
+    paletteDropMode: 'insert',
 
     // ── React Flow handlers ──────────────────────────────────────────────
 
@@ -124,6 +144,36 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     /**
+     * Place mode — create a free, unwired component at the drop position.
+     *
+     * Lesson 5's branch-wiring gesture: the user places the resistor, then
+     * draws its wires by hand (no auto-connect). The re-solve marks the new
+     * component dangling so the panel stays truthful.
+     */
+    addComponent: (entry: PaletteEntry, position: { x: number; y: number }) => {
+      set((state) => {
+        // Resistor is the only placeable kind today (same guard as insert).
+        if (entry.kind !== 'resistor') return {};
+
+        const id = nextResistorId(state.nodes);
+        const newNode: AppNode = {
+          id,
+          type: 'resistor',
+          position,
+          data: {
+            kind: 'resistor',
+            componentId: id,
+            label: entry.label,
+            resistanceOhm: entry.resistanceOhm,
+          },
+        };
+
+        const nodes = [...state.nodes, newNode];
+        return { nodes, solveResult: runSolve(nodes, state.edges) };
+      });
+    },
+
+    /**
      * Commits a new resistance value for one component and re-solves.
      *
      * Called on slider RELEASE (lesson 3) — never during the drag. A
@@ -156,14 +206,7 @@ export const useAppStore = create<AppState>((set, get) => {
         // appear in a palette, so resistor is the only droppable kind today.
         if (!edge || entry.kind !== 'resistor') return {};
 
-        // Deterministic next-index id: lesson 2's first insert is resistor-1;
-        // lesson 4 reuses this action in a circuit that already has one.
-        const nextIndex =
-          state.nodes.reduce((max, n) => {
-            const m = /^resistor-(\d+)$/.exec(n.id);
-            return m ? Math.max(max, Number(m[1])) : max;
-          }, 0) + 1;
-        const id = `resistor-${nextIndex}`;
+        const id = nextResistorId(state.nodes);
 
         // Cosmetic placement: midpoint of the two endpoint nodes.
         const sourceNode = state.nodes.find((n) => n.id === edge.source);
@@ -231,6 +274,7 @@ export const useAppStore = create<AppState>((set, get) => {
         edges: lesson.initialCanvas.edges,
         solveResult,
         currentLessonId: lessonId,
+        paletteDropMode: lesson.paletteDropMode ?? 'insert',
       });
     },
 
